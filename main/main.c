@@ -374,7 +374,7 @@ static portMUX_TYPE s_tcm_dump_gate_mux = portMUX_INITIALIZER_UNLOCKED;
 static capture_config_t s_config = {
     .stream = {.stream_wifi_packets = 0},
     .radio = {.rf_freq_hz = RF_FREQ_DEFAULT_HZ, .frequency_correction_ppb = 0},
-    .gain = {.gain_mode = GAIN_MODE_MANUAL,
+    .gain = {.gain_mode = GAIN_MODE_HARDWARE,
              .rx_gain = 32},
     .bandwidth = {.bw_mhz = 20, .second_chan = SECOND_CHAN_NONE},
     .iq_engine = {.adc_decimation = 1,
@@ -4497,6 +4497,8 @@ static bool network_config_applying(void) {
   return applying;
 }
 
+#include "s31_burst.h"
+
 static void stream_next_frame(void) {
   if (config_apply_in_progress()) {
     vTaskDelay(pdMS_TO_TICKS(1));
@@ -4526,6 +4528,8 @@ static void stream_next_frame(void) {
     return;
   }
   bool sent = false;
+  if(iq_network_stream_owner()==IQ_STREAM_OWNER_SERIAL)
+    sent=s31_burst_frame(frame);
 #if CONFIG_ESP_SDR_TRANSPORT_USB
   if (iq_network_stream_owner() == IQ_STREAM_OWNER_USB) {
     sent = iq_usb_send_frame((const uint8_t *)frame, frame_size);
@@ -4713,7 +4717,9 @@ void app_main(void) {
 
   vTaskPrioritySet(NULL, STREAM_TASK_PRIORITY);
   ESP_LOGI("iq_capture", "stream running on core %d", xPortGetCoreID());
+  s31_burst_init();
   while (true) {
+    s31_burst_poll();
     service_pending_config();
     if (!s_network_capture_armed && capture_engine_running(&s_config)
     ) {

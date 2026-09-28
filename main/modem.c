@@ -403,34 +403,8 @@ static void apply_bt_filter_probe(const modem_config_t *config)
 /* Map an SDR-style two-sided analog bandwidth request to the WifiRX0 6-bit
  * filter capacitor DAC. The interpolation exposes the DAC's useful resolution
  * instead of presenting a handful of presets. */
-static uint8_t filter_bw_to_dcap(uint32_t bw_mhz)
-{
-    static const struct {
-        uint8_t dcap;
-        uint8_t bw_mhz;
-    } cal[] = {
-        {0u, 54u}, {8u, 36u}, {16u, 30u}, {28u, 21u},
-        {32u, 18u}, {48u, 15u}, {60u, 13u},
-    };
-    const uint32_t n = sizeof(cal) / sizeof(cal[0]);
-
-    if (bw_mhz == RX_FILTER_BW_OPEN || bw_mhz >= cal[0].bw_mhz) {
-        return cal[0].dcap;
-    }
-    if (bw_mhz <= cal[n - 1u].bw_mhz) {
-        return cal[n - 1u].dcap;
-    }
-    for (uint32_t i = 1u; i < n; ++i) {
-        if (bw_mhz >= cal[i].bw_mhz) {
-            uint32_t bw_hi = cal[i - 1u].bw_mhz;
-            uint32_t span = bw_hi - cal[i].bw_mhz;
-            uint32_t dspan = cal[i].dcap - cal[i - 1u].dcap;
-            return (uint8_t)(cal[i - 1u].dcap +
-                (dspan * (bw_hi - bw_mhz) + span / 2u) / span);
-        }
-    }
-    return cal[n - 1u].dcap;
-}
+#include "rx_bandwidth.h"
+#define filter_bw_to_dcap rx_bandwidth_dcap
 
 static void apply_rx_bandwidth_config(const modem_config_t *config)
 {

@@ -14,11 +14,11 @@ class BurstGain(unittest.TestCase):
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-static unsigned forced, selected;
+static unsigned forced, selected, mock_maximum=76;
 static char response[128];
 void force_rx_gain(unsigned force, unsigned gain, unsigned unused) { forced=force; selected=gain; }
 static void reply(const char *s) { snprintf(response,sizeof(response),"%s",s); }
-#define REG_READ(address) (forced << 23)
+#define REG_READ(address) ((forced << 23)|(mock_maximum << 8))
 #include "HEADER"
 int main(void) {
  gain_apply(); assert(forced==0);
@@ -27,6 +27,9 @@ int main(void) {
  assert(gain_command("GAIN?")); assert(strstr(response,"GAIN MANUAL 23"));
  assert(!gain_command("GAIN AUTO")); assert(forced==1 && selected==23);
  assert(!gain_command("GAIN MANUAL 99")); assert(selected==23);
+ assert(gain_command("GAIN MANUAL 76")); assert(selected==76);
+ assert(!gain_command("GAIN MANUAL 77")); assert(selected==76);
+ mock_maximum=71; assert(!gain_command("GAIN MANUAL 72"));
  assert(gain_command("GAIN HARDWARE")); assert(forced==0);
  assert(gain_command("GAIN?")); assert(strstr(response,"GAIN HARDWARE -1"));
  return 0;

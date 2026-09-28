@@ -1,12 +1,12 @@
-set(esp_sdr_supported_targets esp32c5 esp32s3 esp32s31 esp32c61)
+set(esp_sdr_supported_targets esp32c5 esp32s3 esp32s31 esp32c61 esp32c6)
 if(NOT IDF_TARGET IN_LIST esp_sdr_supported_targets)
-    message(FATAL_ERROR "No ESP-SDR RF backend for ${IDF_TARGET}. Generic board firmware is available for esp32c5 and esp32s3; esp32s31/esp32c61 use their existing specialized backends.")
+    message(FATAL_ERROR "No ESP-SDR RF backend for ${IDF_TARGET}. Generic board firmware is available for esp32c5, esp32c6, esp32c61 and esp32s3; esp32s31 use their existing specialized backends.")
 endif()
 
 option(SAMPLE_RATE_PROBE "Build volatile hardware sample-rate diagnostics (never package)" OFF)
 
 if(IDF_TARGET STREQUAL "esp32s3")
-    idf_component_register(SRCS "s3_main.c" "s3_serial.c"
+    idf_component_register(SRCS "s3_main.c" "burst_serial.c"
         REQUIRES esp_phy esp_wifi nvs_flash esp_timer esp_driver_usb_serial_jtag esp_driver_uart)
     if(SAMPLE_RATE_PROBE)
         target_compile_definitions(${COMPONENT_LIB} PRIVATE SAMPLE_RATE_PROBE=1)
@@ -21,9 +21,12 @@ if(IDF_TARGET STREQUAL "esp32s3")
     return()
 endif()
 
-if(IDF_TARGET STREQUAL "esp32c5")
-    idf_component_register(SRCS "c5_main.c"
-        REQUIRES esp_phy esp_wifi nvs_flash esp_timer esp_driver_usb_serial_jtag)
+if(IDF_TARGET STREQUAL "esp32c6" OR IDF_TARGET STREQUAL "esp32c5" OR IDF_TARGET STREQUAL "esp32c61")
+    if(IDF_TARGET STREQUAL "esp32c6" AND FILTER_REGISTER_PROBE)
+        message(FATAL_ERROR "Filter register diagnostics are not characterized for C6")
+    endif()
+    idf_component_register(SRCS "c5_c61_main.c" "burst_serial.c"
+        REQUIRES esp_phy esp_wifi nvs_flash esp_timer esp_driver_usb_serial_jtag esp_driver_uart)
     if(SAMPLE_RATE_PROBE)
         target_compile_definitions(${COMPONENT_LIB} PRIVATE SAMPLE_RATE_PROBE=1)
     endif()
@@ -31,7 +34,11 @@ if(IDF_TARGET STREQUAL "esp32c5")
         target_compile_definitions(${COMPONENT_LIB} PRIVATE FILTER_REGISTER_PROBE=1)
     endif()
     target_link_options(${COMPONENT_LIB} INTERFACE
-        "-T${CMAKE_CURRENT_LIST_DIR}/c5_sram_guard.ld")
+        "-T${CMAKE_CURRENT_LIST_DIR}/${IDF_TARGET}_sram_guard.ld")
+    if(IDF_TARGET STREQUAL "esp32c61")
+        target_sources(${COMPONENT_LIB} PRIVATE "burst_gain_table.c")
+        target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=phy_write_gain_mem")
+    endif()
     if(C5_TUNE_PROBE)
         target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_TUNE_PROBE=1)
     endif()
@@ -40,10 +47,10 @@ endif()
 
 set(esp_sdr_sources
     "main.c" "wifi_rx.c" "ringbuffer.c" "modem.c" "iq_network.c"
-    "dcoc.c" "gaintable.c" "s31_pie_copy.S")
+    "dcoc.c" "gaintable.c" "s31_pie_copy.S" "burst_serial.c")
 
 set(esp_sdr_requires
-    heap esp_timer esp_event esp_mm esp_psram nvs_flash esp_driver_gpio esp_driver_parlio
+    esp_driver_uart esp_driver_usb_serial_jtag heap esp_timer esp_event esp_mm esp_psram nvs_flash esp_driver_gpio esp_driver_parlio
     esp_driver_gptimer esp_driver_dma esp_hw_support esp_hal_wdt esp_wifi
     esp_eth esp_netif esp_http_server espressif__cjson espressif__mdns lwip
     espressif__esp_tinyusb esp-open-phy-lib esp32c61-phy-regs)

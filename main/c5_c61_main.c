@@ -1,4 +1,4 @@
-/* ESP32-C5 USB Serial/JTAG burst receiver. */
+/* Shared ESP32-C5/C6/C61 burst receiver. Chip differences: c5_c61_chip.h. */
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -19,13 +19,11 @@
 #include "riscv/rv_utils.h"
 #include "hal/usb_serial_jtag_ll.h"
 
-/* Ownership bit 1 covers 128 KiB. MAC_DUMP_ALLOC selects its upper 64 KiB.
- * Reserving only the upper half lets the modem corrupt task stacks/heap. */
-SOC_RESERVE_MEMORY_REGION(0x40820000, 0x40840000, c5_rf_dump);
-#define IQ_WORDS 16380u
-#define IQ_BUFFER ((uint32_t *)0x40830000)
-#define SRAM_OWNER_REG 0x60095004u
-extern void adctrig(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t);
+#ifndef CONFIG_IDF_TARGET_ESP32C6
+#define CONFIG_IDF_TARGET_ESP32C6 0
+#endif
+#include "c5_c61_chip.h"
+#include "burst_serial.h"
 extern void phy_stop_tx_tone(unsigned);
 extern void phy_pbus_workmode(void);
 extern void phy_pbus_xpd_rx_on(unsigned);
@@ -35,60 +33,57 @@ extern void phy_chip_set_chan(unsigned,unsigned);
 extern void phy_rx_filter_mode(unsigned);
 static unsigned frequency_mhz=2412;
 static bool rx_ready;
+#if !CONFIG_IDF_TARGET_ESP32C6
 static int rx_filter=-1; /* -1 restores the PHY-calibrated automatic mode. */
+#endif
 static int rx_analog_filter=-1;
+#if CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
+#define RX_FILTER_REG 4u
+#else
+#define RX_FILTER_REG 6u
+#endif
 extern unsigned phy_chip_i2c_readReg(unsigned,unsigned,unsigned);
 extern void phy_i2c_writeReg(unsigned,unsigned,unsigned,unsigned);
 /* RX-only analog capacitance. Preserve PHY calibration between snapshots,
  * across retunes; zero is the widest tested code, not bypass. */
 static void rx_analog_apply(unsigned saved[2]) {
     for(unsigned j=0;j<2;j++) {
-        saved[j]=phy_chip_i2c_readReg(0x67,1,6+j);
-        if(rx_analog_filter>=0)phy_i2c_writeReg(0x67,1,6+j,(saved[j]&~63u)|(unsigned)rx_analog_filter);
+        saved[j]=phy_chip_i2c_readReg(0x67,1,RX_FILTER_REG+j);
+        if(rx_analog_filter>=0)phy_i2c_writeReg(0x67,1,RX_FILTER_REG+j,(saved[j]&~63u)|(unsigned)rx_analog_filter);
     }
 }
 static void rx_analog_restore(const unsigned saved[2]) {
-    if(rx_analog_filter>=0)for(unsigned j=0;j<2;j++)phy_i2c_writeReg(0x67,1,6+j,saved[j]);
+    if(rx_analog_filter>=0)for(unsigned j=0;j<2;j++)phy_i2c_writeReg(0x67,1,RX_FILTER_REG+j,saved[j]);
 }
 
 /* Required by the stock RF test archive; no shell is exposed. */
 int cmd_parse(char *cmd,char *name,int *argc,char **argv) {
     (void)cmd;(void)name;(void)argc;(void)argv;return -1;
 }
-/* Bulk transfers poll the 64-byte hardware FIFO, avoiding an ISR and RTOS
- * ring-buffer round trip for every packet. Control-idle polling still sleeps. */
-static bool IRAM_ATTR __attribute__((noinline)) send_bytes(const void *data,size_t n) {
-    const uint8_t *p=data;
-    size_t original=n;
-    int64_t deadline=esp_timer_get_time()+3000000;
-    while(n) {
-        if(esp_timer_get_time()>deadline)return false;
-        if(!usb_serial_jtag_ll_txfifo_writable())continue;
-        size_t count=n>64?64:n;
-        int sent=usb_serial_jtag_ll_write_txfifo(p,count);
-        usb_serial_jtag_ll_txfifo_flush();
-        p+=sent;n-=sent;
-    }
-    if(original && original%64==0) {
-        while(!usb_serial_jtag_ll_txfifo_writable())
-            if(esp_timer_get_time()>deadline)return false;
-        usb_serial_jtag_ll_txfifo_flush();
-    }
-    return true;
-}
+#define send_bytes burst_serial_send
 static void reply(const char *s) { (void)send_bytes(s,strlen(s)); }
-
 #include "burst_gain.h"
+#include "burst_limits.h"
 
 static void prepare_rx(void) {
     if(rx_ready)return;
+#if CONFIG_IDF_TARGET_ESP32C61
+    burst_gain_mirror(-1);
+    if(gain_defaults_saved) {
+        REG_WRITE(0x600a7094u,gain_init_saved);
+        REG_WRITE(0x600a713cu,gain_threshold_saved);
+        gain_defaults_saved=false;
+    }
+#endif
     phy_chip_set_chan(frequency_mhz,0);
     phy_stop_tx_tone(1);
     phy_pbus_workmode();
     phy_pbus_xpd_tx_off();
     phy_pbus_xpd_rx_on(1);
     phy_set_rxclk_en(1);
+#if !CONFIG_IDF_TARGET_ESP32C6
     if(rx_filter>=0)phy_rx_filter_mode((unsigned)rx_filter);
+#endif
     gain_apply();
     rx_ready=true;
 }
@@ -118,7 +113,7 @@ static void pack_iq8(unsigned n) {
 static size_t wire_size(unsigned n,unsigned format) {
     return format==16?n*2:format==20?packed_size(n):n*4;
 }
-#ifdef SAMPLE_RATE_PROBE
+#if defined(SAMPLE_RATE_PROBE) && CONFIG_IDF_TARGET_ESP32C5
 /* Volatile, bounded dump-clock/source investigation; excluded from releases. */
 static unsigned probe_source,probe_clock,probe_adc=4;
 extern void phy_adc_rate_set(unsigned);
@@ -130,18 +125,20 @@ static bool capture(unsigned n,unsigned divider,unsigned format) {
     prepare_rx();
     
     for(unsigned j=0;j<n;j++)IQ_BUFFER[j]=0xa5a0055au;
+    for(unsigned j=0;j<4;j++)IQ_BUFFER[n+j]=0x5a5aa5a5u^j;
     unsigned analog_saved[2];rx_analog_apply(analog_saved);
     uint32_t owner=REG_READ(SRAM_OWNER_REG);
-#ifdef SAMPLE_RATE_PROBE
+#if defined(SAMPLE_RATE_PROBE) && CONFIG_IDF_TARGET_ESP32C5
     unsigned adc_saved=phy_chip_i2c_readReg(0x66,0,4);
     uint32_t adc_digital_saved=REG_READ(0x600a0448);
     if(probe_adc<2)phy_adc_rate_set(probe_adc);
 #endif
+    bool done=true;
     int64_t start=esp_timer_get_time();
     /* Vendor selector 0 maps to raw source 15 and pulses the software trigger.
      * In particular, do NOT set CTRL bit 17 as in the C61 continuous backend:
      * on this C5 it produced only a short, incomplete snapshot. */
-#ifdef SAMPLE_RATE_PROBE
+#if defined(SAMPLE_RATE_PROBE) && CONFIG_IDF_TARGET_ESP32C5
     if(probe_capture && probe_source>0) {
         /* Seed stock packing/clock setup, then bounded raw-source capture. */
         adctrig(255,0,0,probe_clock*2u,0,0,0,0,0);
@@ -155,18 +152,22 @@ static bool capture(unsigned n,unsigned divider,unsigned format) {
         int64_t wait_start=esp_timer_get_time();
         while(!(REG_READ(0x600a9004)&(1u<<22)) && esp_timer_get_time()-wait_start<20000){}
         REG_WRITE(0x600a9004,0);REG_WRITE(0x600a9008,mode);
-    } else adctrig(n-1,0,0,(probe_capture?probe_clock:divider)*2u,0,0,0,0,0);
+    } else done=stock_capture(n,probe_capture?probe_clock:divider);
 #else
-    adctrig(n-1,0,0,divider*2u,0,0,0,0,0);
+    done=stock_capture(n,divider);
 #endif
     uint32_t elapsed=(uint32_t)(esp_timer_get_time()-start);
-#ifdef SAMPLE_RATE_PROBE
+#if defined(SAMPLE_RATE_PROBE) && CONFIG_IDF_TARGET_ESP32C5
     if(probe_adc<2){phy_i2c_writeReg(0x66,0,4,adc_saved);REG_WRITE(0x600a0448,adc_digital_saved);}
 #endif
     REG_WRITE(SRAM_OWNER_REG,owner);
     rx_analog_restore(analog_saved);
+    if(!done){reply("ERR capture_timeout\n");return false;}
     for(unsigned j=0;j<n;j++) {
         if(IQ_BUFFER[j]==0xa5a0055au){reply("ERR capture_timeout\n");return false;}
+    }
+    for(unsigned j=0;j<4;j++) {
+        if(IQ_BUFFER[n+j]!=(0x5a5aa5a5u^j)){reply("ERR capture_overrun\n");return false;}
     }
     size_t bytes=wire_size(n,format);
     if(format==16)pack_iq8(n);else if(format==20)pack_iq(n);
@@ -176,12 +177,10 @@ static bool capture(unsigned n,unsigned divider,unsigned format) {
     return send_bytes(h,strlen(h)) && send_bytes(IQ_BUFFER,bytes);
 }
 
-/* Private modem SRAM reader, identified by C5 hardware/B210 experiments.
- * 0x600a900c: size[13:0], half-rate[17], done[18], loop[19],
- * repeat count[27:20] (0 means infinite with loop set), enable[31].
- * This is modem-local DMA, independent of the general GDMA channels. */
+static void handle_command(char *line);
 
 void app_main(void) {
+
     esp_log_level_set("*",ESP_LOG_NONE);
     esp_err_t e=nvs_flash_init();
     if(e==ESP_ERR_NVS_NO_FREE_PAGES||e==ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -201,58 +200,90 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_wifi_set_channel(1,WIFI_SECOND_CHAN_NONE));
     prepare_rx();
     esp_log_level_set("*",ESP_LOG_NONE);
-    ESP_ERROR_CHECK(usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(1000)));
+    (void)usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(100));
     ESP_ERROR_CHECK(usb_serial_jtag_driver_uninstall());
-    reply("C5SDR READY\n");
-    char line[128];size_t used=0;bool overflow=false;
+    burst_serial_init();
+    char line[128];int owner=-1;int64_t lease_deadline=0;
     for(;;) {
-        char ch;
-        if(usb_serial_jtag_ll_read_rxfifo((uint8_t *)&ch,1)!=1){vTaskDelay(1);continue;}
-        if(ch=='\r')continue;
-        if(ch!='\n') {
-            if(used<sizeof(line)-1)line[used++]=ch;else overflow=true;
-            continue;
-        }
-        line[used]=0;used=0;
-        if(overflow){overflow=false;reply("ERR command_length\n");continue;}
+        if(esp_timer_get_time()>=lease_deadline)owner=-1;
+        int status=burst_serial_poll_line(line,sizeof(line));
+        if(!status){vTaskDelay(1);continue;}
+        int port=burst_serial_port();
+        if(owner>=0 && owner!=port){reply("ERR busy\n");continue;}
+        if(status<0){reply("ERR command_length\n");continue;}
+        owner=port;
+        handle_command(line);
+        if(!strcmp(line,"RELEASE"))owner=-1;
+        lease_deadline=esp_timer_get_time()+5000000;
+    }
+}
+
+static void handle_command(char *line) {
+    if(!strcmp(line,"RELEASE")){reply("OK\n");return;}
+    if(!strcmp(line,"TRANSPORT?")) {
+        char h[64];snprintf(h,sizeof(h),"TRANSPORT %s %u\n",
+            burst_serial_port()==BURST_SERIAL_UART?"UART":"USB",burst_serial_baud());
+        reply(h);return;
+    }
 #ifdef FILTER_REGISTER_PROBE
-        if(filter_probe_command(line))continue;
+        if(filter_probe_command(line))return;
 #endif
-        if(gain_command(line))continue;
+        if(limits_command(line))return;
+        if(gain_command(line))return;
         unsigned n,rate,crc,repeats;char extra;uint64_t nonce;
         bool iq8=false;
         if(!strncmp(line,"CAP16 ",6)){memcpy(line,"CAP20",5);iq8=true;}
         if(sscanf(line,"SYNC %" SCNu64 " %c",&nonce,&extra)==1) {
             char answer[48];snprintf(answer,sizeof(answer),"SYNC %" PRIu64 "\n",nonce);reply(answer);
         }
-#ifdef C5_TUNE_PROBE
+#if defined(C5_TUNE_PROBE) && CONFIG_IDF_TARGET_ESP32C5
         else if(sscanf(line,"FREQEX %u %c",&n,&extra)==1 && n>=100 && n<=7500) {
             frequency_mhz=n;rx_ready=false;prepare_rx();reply("OK\n");
         }
 #endif
         else if(sscanf(line,"RXRUN %u %u %u %u %c",&n,&rate,&repeats,&crc,&extra)==4 &&
-                n>=256 && n<=IQ_WORDS && rate<=5 && repeats>0 && repeats<=1000 && (crc==16 || crc==20)) {
+                n>=256 && n<=IQ_WORDS && rate<=(CONFIG_IDF_TARGET_ESP32C6?0:5) && repeats>0 && repeats<=1000 && (crc==16 || crc==20)) {
             /* Format 16 = IQ8, 20 = IQ10 packed. Each frame
              * is a separate capture, with RF gaps during USB transfer. */
             bool ok=true;
             for(unsigned j=0;j<repeats && ok;j++){ok=capture(n,rate,crc);vTaskDelay(1);}
             if(ok)reply("END\n");
         }
-#ifdef SAMPLE_RATE_PROBE
+#if defined(SAMPLE_RATE_PROBE) && CONFIG_IDF_TARGET_ESP32C5
         else if(sscanf(line,"RXPROBE %u %u %c",&n,&rate,&extra)==2 && n<17 && rate<8) {
             probe_source=n;probe_clock=rate;probe_capture=true;capture(16380,0,20);probe_capture=false;
         }
         else if(sscanf(line,"ADCCLOCK %u %c",&n,&extra)==1 && (n<2 || n==4)) {probe_adc=n;reply("OK\n");}
 #endif
         else if(!strcmp(line,"CAPS")) {
-            reply("CAPS GAIN HWAGC IQ8 LPF LPF12 ALPF" "\n");
+            reply("CAPS RXLIMITS GAIN HWAGC IQ8 SERIALLEASE"
+#if CONFIG_IDF_TARGET_ESP32C6
+                  " TUNEEXT"
+#endif
+#if !CONFIG_IDF_TARGET_ESP32C6
+                  " LPF LPF12"
+#endif
+                  " ALPF"
+#if CONFIG_ESP_SDR_UART_ENABLED
+                  " DUALSERIAL"
+#endif
+                  "\n");
         }
+#if CONFIG_IDF_TARGET_ESP32C6
+        else if(!strcmp(line,"RANGE?")){reply("RANGE 2100 2800 1\n");}
+#endif
+#if CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
+        else if(sscanf(line,"BANDWIDTH %u %c",&n,&extra)==1 && (!n || (n>=RX_BANDWIDTH_MIN && n<=RX_BANDWIDTH_MAX))) {
+            rx_analog_filter=rx_bandwidth_dcap(n);reply("OK\n");
+        }
+#endif
         else if(!strcmp(line,"ALPF AUTO")){rx_analog_filter=-1;reply("OK\n");}
         else if(sscanf(line,"ALPF %u %c",&n,&extra)==1 && n<=63){rx_analog_filter=(int)n;reply("OK\n");}
         else if(!strcmp(line,"ALPF?")) {
             prepare_rx();char answer[64];snprintf(answer,sizeof(answer),"ALPF %d %u %u\n",rx_analog_filter,
-                phy_chip_i2c_readReg(0x67,1,6),phy_chip_i2c_readReg(0x67,1,7));reply(answer);
+                phy_chip_i2c_readReg(0x67,1,RX_FILTER_REG),phy_chip_i2c_readReg(0x67,1,RX_FILTER_REG+1));reply(answer);
         }
+#if !CONFIG_IDF_TARGET_ESP32C6
         else if(!strcmp(line,"LPF AUTO")){rx_filter=-1;rx_ready=false;prepare_rx();reply("OK\n");}
         else if(sscanf(line,"LPF %u %c",&n,&extra)==1 && (n==0 || n==4 || n==8 || n==12)) {
             rx_filter=(int)n;rx_ready=false;prepare_rx();reply("OK\n");
@@ -260,12 +291,14 @@ void app_main(void) {
         else if(!strcmp(line,"LPF?")) {
             char answer[64];snprintf(answer,sizeof(answer),"LPF %d %u\n",rx_filter,(unsigned)((REG_READ(0x600a0430)>>18)&15));reply(answer);
         }
-        else if(!strcmp(line,"INFO")) reply("C5SDR 6 burst 16380\n");
-        else if(sscanf(line,"FREQ %u %c",&n,&extra)==1 && ((n>=2100 && n<=2700)||(n>=4800 && n<=6000))) {
+#endif
+        else if(!strcmp(line,"INFO")) {
+            char h[64];snprintf(h,sizeof(h),BURST_ID " 6 burst %u\n",IQ_WORDS);reply(h);
+        }
+        else if(sscanf(line,"FREQ %u %c",&n,&extra)==1 && frequency_valid(n)) {
             frequency_mhz=n;rx_ready=false;prepare_rx();reply("OK\n");
         } else if(((!strncmp(line,"CAP ",4) && sscanf(line,"CAP %u %u %c",&n,&rate,&extra)==2) ||
                    (!strncmp(line,"CAP20 ",6) && sscanf(line,"CAP20 %u %u %c",&n,&rate,&extra)==2)) &&
-                   n>=256 && n<=IQ_WORDS && rate<=5) capture(n,rate,!strncmp(line,"CAP20 ",6)? (iq8?16:20):0);
+                   n>=256 && n<=IQ_WORDS && rate<=(CONFIG_IDF_TARGET_ESP32C6?0:5)) capture(n,rate,!strncmp(line,"CAP20 ",6)? (iq8?16:20):0);
         else reply("ERR command\n");
-    }
 }

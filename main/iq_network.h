@@ -80,6 +80,7 @@ typedef enum {
   IQ_STREAM_OWNER_NONE = 0,
   IQ_STREAM_OWNER_ETH = 1,
   IQ_STREAM_OWNER_USB = 2,
+  IQ_STREAM_OWNER_SERIAL = 3,
 } iq_stream_owner_t;
 
 iq_stream_owner_t iq_network_stream_owner(void);

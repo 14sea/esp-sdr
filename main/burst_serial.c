@@ -1,5 +1,5 @@
 /* The burst protocol is shared by native USB Serial/JTAG and UART0. */
-#include "s3_serial.h"
+#include "burst_serial.h"
 #include <stdint.h>
 #include <string.h>
 #include "driver/uart.h"
@@ -11,20 +11,24 @@
 #include "hal/usb_serial_jtag_ll.h"
 #include "sdkconfig.h"
 
+#ifndef CONFIG_ESP_SDR_UART_BAUD
+#define CONFIG_ESP_SDR_UART_BAUD 2000000
+#endif
+
 #define COMMAND_SIZE 128
-static s3_serial_port_t active_port = S3_SERIAL_USB;
+static burst_serial_port_t active_port = BURST_SERIAL_USB;
 static unsigned next_port;
 static struct {
     char line[COMMAND_SIZE];
     size_t used;
     bool overflow;
     int64_t last_byte;
-} input[S3_SERIAL_COUNT];
+} input[BURST_SERIAL_COUNT];
 
-void s3_serial_init(void) {
-#if CONFIG_ESP_SDR_S3_UART_ENABLED
+void burst_serial_init(void) {
+#if CONFIG_ESP_SDR_UART_ENABLED
     const uart_config_t config = {
-        .baud_rate = CONFIG_ESP_SDR_S3_UART_BAUD,
+        .baud_rate = CONFIG_ESP_SDR_UART_BAUD,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
@@ -32,8 +36,8 @@ void s3_serial_init(void) {
         .source_clk = UART_SCLK_DEFAULT,
     };
     ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &config));
-    ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, CONFIG_ESP_SDR_S3_UART_TX_PIN,
-                                CONFIG_ESP_SDR_S3_UART_RX_PIN,
+    ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, CONFIG_ESP_SDR_UART_TX_PIN,
+                                CONFIG_ESP_SDR_UART_RX_PIN,
                                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
     /* Interrupt-driven RX keeps uploads buffered while the command is parsed.
      * TX uses the FIFO directly so all waits have a bounded deadline. */
@@ -42,14 +46,14 @@ void s3_serial_init(void) {
 #endif
 }
 
-s3_serial_port_t s3_serial_port(void) { return active_port; }
-unsigned s3_serial_baud(void) {
-    return active_port == S3_SERIAL_UART ? CONFIG_ESP_SDR_S3_UART_BAUD : 0;
+burst_serial_port_t burst_serial_port(void) { return active_port; }
+unsigned burst_serial_baud(void) {
+    return active_port == BURST_SERIAL_UART ? CONFIG_ESP_SDR_UART_BAUD : 0;
 }
 
-static int read_port(s3_serial_port_t port, void *buffer, size_t size) {
-    if (port == S3_SERIAL_UART) {
-#if CONFIG_ESP_SDR_S3_UART_ENABLED
+static int read_port(burst_serial_port_t port, void *buffer, size_t size) {
+    if (port == BURST_SERIAL_UART) {
+#if CONFIG_ESP_SDR_UART_ENABLED
         return uart_read_bytes(UART_NUM_0, buffer, size, 0);
 #else
         return 0;
@@ -58,9 +62,9 @@ static int read_port(s3_serial_port_t port, void *buffer, size_t size) {
     return usb_serial_jtag_ll_read_rxfifo(buffer, size > 64 ? 64 : size);
 }
 
-int s3_serial_poll_line(char *line, size_t capacity) {
-    for (unsigned j = 0; j < S3_SERIAL_COUNT; ++j) {
-        unsigned port = (next_port + j) % S3_SERIAL_COUNT;
+int burst_serial_poll_line(char *line, size_t capacity) {
+    for (unsigned j = 0; j < BURST_SERIAL_COUNT; ++j) {
+        unsigned port = (next_port + j) % BURST_SERIAL_COUNT;
         int64_t now = esp_timer_get_time();
         if (now - input[port].last_byte > 3000000) {
             input[port].used = 0;
@@ -84,7 +88,7 @@ int s3_serial_poll_line(char *line, size_t capacity) {
             input[port].overflow = false;
             if (!used && !overflow) continue;
             active_port = port;
-            next_port = (port + 1) % S3_SERIAL_COUNT;
+            next_port = (port + 1) % BURST_SERIAL_COUNT;
             if (overflow || used >= capacity) return -1;
             memcpy(line, input[port].line, used);
             line[used] = '\0';
@@ -97,20 +101,20 @@ int s3_serial_poll_line(char *line, size_t capacity) {
 static int64_t transfer_deadline(size_t size) {
     /* 8N1 needs ten wire bits per byte. Leave two seconds for host scheduling,
      * including full frames at a deliberately reduced UART baud rate. */
-    int64_t timeout = active_port == S3_SERIAL_UART
-        ? 2000000 + (int64_t)size * 10000000 / CONFIG_ESP_SDR_S3_UART_BAUD
+    int64_t timeout = active_port == BURST_SERIAL_UART
+        ? 2000000 + (int64_t)size * 10000000 / CONFIG_ESP_SDR_UART_BAUD
         : 3000000;
     return esp_timer_get_time() + timeout;
 }
 
-bool IRAM_ATTR s3_serial_send(const void *data, size_t size) {
+bool IRAM_ATTR burst_serial_send(const void *data, size_t size) {
     const uint8_t *p = data;
     size_t original = size;
     int64_t deadline = transfer_deadline(size);
     while (size) {
         if (esp_timer_get_time() >= deadline) return false;
         int sent;
-        if (active_port == S3_SERIAL_UART) {
+        if (active_port == BURST_SERIAL_UART) {
             sent = uart_tx_chars(UART_NUM_0, (const char *)p, size > 128 ? 128 : size);
             if (sent < 0) return false;
             if (!sent) vTaskDelay(1);
@@ -122,7 +126,7 @@ bool IRAM_ATTR s3_serial_send(const void *data, size_t size) {
         p += sent;
         size -= sent;
     }
-    if (active_port == S3_SERIAL_USB && original && original % 64 == 0) {
+    if (active_port == BURST_SERIAL_USB && original && original % 64 == 0) {
         while (!usb_serial_jtag_ll_txfifo_writable())
             if (esp_timer_get_time() >= deadline) return false;
         usb_serial_jtag_ll_txfifo_flush();

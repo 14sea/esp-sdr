@@ -478,6 +478,7 @@ int iq_control_build_status_json(char *text, size_t cap) {
   const iq_stream_owner_t owner = s_stream_owner;
   const char *owner_name = owner == IQ_STREAM_OWNER_ETH   ? "ethernet"
                            : owner == IQ_STREAM_OWNER_USB ? "usb"
+                           : owner == IQ_STREAM_OWNER_SERIAL ? "serial"
                                                           : "none";
   const uint64_t hardware_time_ns =
       (uint64_t)esp_timer_get_time() * 1000u;

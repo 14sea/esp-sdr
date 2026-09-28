@@ -2,7 +2,7 @@
  * Each field is backed up before its first write; FRESET restores it.
  * The caller must restore before retuning. Never package a probe build. */
 #ifdef FILTER_REGISTER_PROBE
-#if CONFIG_IDF_TARGET_ESP32C5
+#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61
 extern unsigned phy_chip_i2c_readReg(unsigned,unsigned,unsigned);
 extern void phy_i2c_writeReg(unsigned,unsigned,unsigned,unsigned);
 #define filter_i2c_read(r) phy_chip_i2c_readReg(0x67,1,(r))

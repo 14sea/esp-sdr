@@ -16,19 +16,22 @@ class ReceiveCommands(unittest.TestCase):
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
-#define S3_SERIAL_UART 1
+#define BURST_SERIAL_UART 1
 #define IQ_WORDS 16380u
+#define CONFIG_IDF_TARGET_ESP32S3 1
+#include "rx_bandwidth.h"
 #define S3_FREQ_MIN 2212u
 #define S3_FREQ_MAX 2813u
-#define CONFIG_ESP_SDR_S3_UART_ENABLED 1
+#define CONFIG_ESP_SDR_UART_ENABLED 1
 static unsigned frequency_mhz, captures, last_format;
 static int rx_filter;
 static bool rx_ready;
 static char response[128];
-static int s3_serial_port(void) { return 1; }
-static unsigned s3_serial_baud(void) { return 2000000; }
+static int burst_serial_port(void) { return 1; }
+static unsigned burst_serial_baud(void) { return 2000000; }
 static void reply(const char *s) { snprintf(response,sizeof(response),"%s",s); }
 static bool gain_command(const char *s) { return false; }
+static bool limits_command(const char *s) { return false; }
 static bool capture(unsigned n,unsigned divider,unsigned format) { ++captures; last_format=format; return true; }
 static void vTaskDelay(int ticks) {}
 static unsigned rom_chip_i2c_readReg(unsigned a,unsigned b,unsigned c) { return 4; }
@@ -50,11 +53,13 @@ int main(void) {
  assert(captures==4);
  command("FREQ 2442"); assert(frequency_mhz==2442 && rx_ready);
  command("LPF 16"); assert(rx_filter==16); command("LPF AUTO"); assert(rx_filter==-1);
+ command("BANDWIDTH 33");assert(rx_filter==16);command("BANDWIDTH 69");assert(rx_filter==0);
+ command("BANDWIDTH 70");assert(!strcmp(response,"ERR command\n"));
  return 0;
 }
 '''
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'commands.c';path.write_text(stub+handler+check)
             binary=Path(tmp)/'commands'
-            subprocess.run(['cc','-std=c11',str(path),'-o',str(binary)],check=True)
+            subprocess.run(['cc','-std=c11','-I'+str(Path(__file__).resolve().parents[1]/'main'),str(path),'-o',str(binary)],check=True)
             subprocess.run([str(binary)],check=True)

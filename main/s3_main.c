@@ -17,7 +17,7 @@
 #include "nvs_flash.h"
 #include "soc/soc.h"
 
-#include "s3_serial.h"
+#include "burst_serial.h"
 
 /* Vendor S3 adctrig uses this 64 KiB aperture with MAC_DUMP_USAGE=4.
  * Keep both its DRAM and IRAM aliases out of the heap and static sections. */
@@ -73,9 +73,10 @@ static void rx_filter_restore(void) {
 int cmd_parse(char *cmd,char *name,int *argc,char **argv) {
     (void)cmd;(void)name;(void)argc;(void)argv;return -1;
 }
-#define send_bytes s3_serial_send
+#define send_bytes burst_serial_send
 static void reply(const char *s) { (void)send_bytes(s,strlen(s)); }
 #include "burst_gain.h"
+#include "burst_limits.h"
 
 static void prepare_rx(void) {
     if(rx_ready)return;
@@ -175,12 +176,13 @@ static void handle_command(char *line) {
     if(!strcmp(line,"TRANSPORT?")) {
         char answer[64];
         snprintf(answer,sizeof(answer),"TRANSPORT %s %u\n",
-                 s3_serial_port()==S3_SERIAL_UART?"UART":"USB",s3_serial_baud());
+                 burst_serial_port()==BURST_SERIAL_UART?"UART":"USB",burst_serial_baud());
         reply(answer);return;
     }
 #ifdef FILTER_REGISTER_PROBE
         if(filter_probe_command(line))return;
 #endif
+        if(limits_command(line))return;
         if(gain_command(line))return;
         unsigned n,rate,crc,repeats;char extra;uint64_t nonce;
         bool iq8=false;
@@ -204,11 +206,14 @@ static void handle_command(char *line) {
         else if(!strcmp(line,"ADCCLOCK?")){char h[64];snprintf(h,sizeof(h),"ADC %u\n",rom_chip_i2c_readReg(0x66,0,4));reply(h);}
 #endif
         else if(!strcmp(line,"CAPS")) {
-            reply("CAPS SERIALLEASE "
-#if CONFIG_ESP_SDR_S3_UART_ENABLED
+            reply("CAPS RXLIMITS SERIALLEASE "
+#if CONFIG_ESP_SDR_UART_ENABLED
                   "DUALSERIAL "
 #endif
                   "TUNEEXT RX40 RX16 LPFANA GAIN HWAGC IQ8\n");
+        }
+        else if(sscanf(line,"BANDWIDTH %u %c",&n,&extra)==1 && (!n || (n>=RX_BANDWIDTH_MIN && n<=RX_BANDWIDTH_MAX))) {
+            rx_filter=rx_bandwidth_dcap(n);reply("OK\n");
         }
         else if(!strcmp(line,"LPF AUTO")){rx_filter=-1;reply("OK\n");}
         else if(sscanf(line,"LPF %u %c",&n,&extra)==1 && n<=63){rx_filter=n;reply("OK\n");}
@@ -271,15 +276,15 @@ void app_main(void) {
     /* USB may be unplugged when the host uses the UART bridge. */
     (void)usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(100));
     ESP_ERROR_CHECK(usb_serial_jtag_driver_uninstall());
-    s3_serial_init();
+    burst_serial_init();
     char line[128];
     int owner=-1;
     int64_t lease_deadline=0;
     for(;;) {
         if(esp_timer_get_time()>=lease_deadline)owner=-1;
-        int status=s3_serial_poll_line(line,sizeof(line));
+        int status=burst_serial_poll_line(line,sizeof(line));
         if(!status){vTaskDelay(1);continue;}
-        int port=s3_serial_port();
+        int port=burst_serial_port();
         if(owner>=0 && owner!=port){reply("ERR busy\n");continue;}
         if(status<0){reply("ERR command_length\n");continue;}
         owner=port;

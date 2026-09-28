@@ -11,6 +11,15 @@
       "submodules": false
     },
     {
+      "id": "esp32c61",
+      "target": "esp32c61",
+      "label": "ESP32-C61 (2 MB or larger)",
+      "idf_ref": "25fe69f946311abdaf9ad56591f25fedbc20ac98",
+      "allow_larger_flash": true,
+      "preview": false,
+      "submodules": false
+    },
+    {
       "id": "esp32s3",
       "target": "esp32s3",
       "label": "ESP32-S3 (2 MB or larger)",
@@ -27,9 +36,16 @@
       "allow_larger_flash": false,
       "preview": true,
       "submodules": true
+    },
+    {
+      "id": "esp32c6",
+      "target": "esp32c6",
+      "label": "ESP32-C6 (2 MB or larger)",
+      "idf_ref": "25fe69f946311abdaf9ad56591f25fedbc20ac98",
+      "allow_larger_flash": true,
+      "preview": false,
+      "submodules": false
     }
   ],
-  "unavailable": {
-    "esp32c61": "Development backend has no working build profile: it currently requires S31 Ethernet/USB components unavailable on C61."
-  }
+  "unavailable": {}
 }

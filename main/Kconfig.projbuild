@@ -16,34 +16,42 @@ menu "ESP-SDR transport"
             may be enabled together; the most recently started stream owns the
             shared receive engine.
 
-    config ESP_SDR_S3_UART_ENABLED
-        bool "S3 UART0 I/Q transport"
-        depends on IDF_TARGET_ESP32S3
+    config ESP_SDR_UART_ENABLED
+        bool "Burst UART0 I/Q transport"
+        depends on IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31
         default y
         help
             Enable the optional USB-to-UART bridge interface. Disable it to
             leave the UART GPIOs unused by the application. Native USB remains
             available in either case.
 
-    config ESP_SDR_S3_UART_BAUD
-        int "S3 UART0 I/Q baud rate"
-        depends on IDF_TARGET_ESP32S3
+    config ESP_SDR_UART_BAUD
+        int "Burst UART0 I/Q baud rate"
+        depends on IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31
         range 115200 3000000
         default 2000000
         help
             The burst I/Q protocol is also available on UART0, 8N1, without
             hardware flow control. The browser baud rate must match this value.
 
-    config ESP_SDR_S3_UART_TX_PIN
-        int "S3 UART0 TX GPIO"
-        depends on IDF_TARGET_ESP32S3
-        range 0 48
+    config ESP_SDR_UART_TX_PIN
+        int "Burst UART0 TX GPIO"
+        depends on IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31
+        range 0 48 if !IDF_TARGET_ESP32S31
+        range 0 63 if IDF_TARGET_ESP32S31
+        default 58 if IDF_TARGET_ESP32S31
+        default 16 if IDF_TARGET_ESP32C6
+        default 11 if IDF_TARGET_ESP32C61
         default 43
 
-    config ESP_SDR_S3_UART_RX_PIN
-        int "S3 UART0 RX GPIO"
-        depends on IDF_TARGET_ESP32S3
-        range 0 48
+    config ESP_SDR_UART_RX_PIN
+        int "Burst UART0 RX GPIO"
+        depends on IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31
+        range 0 48 if !IDF_TARGET_ESP32S31
+        range 0 63 if IDF_TARGET_ESP32S31
+        default 59 if IDF_TARGET_ESP32S31
+        default 17 if IDF_TARGET_ESP32C6
+        default 10 if IDF_TARGET_ESP32C61
         default 44
 
 endmenu
