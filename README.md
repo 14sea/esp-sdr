@@ -5,6 +5,7 @@ or extra peripherals required. Browser viewer and installer:
 [esp-web-sdr](../esp-web-sdr/README.md).
 
 **Parts of the firmware code are AI-generated.**
+While we have a very good understanding of how the IQ sampling functionality works on the ESP32-C61 chip (used in our ESPARGOS One array), making IQ sampling work on the whole range of ESP32 family chips would have been too much work without LLM support.
 
 ## Chip support
 
