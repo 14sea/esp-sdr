@@ -21,7 +21,10 @@ class RxControls(unittest.TestCase):
 #include "rx_bandwidth.h"
 int main(void) {
  assert(rx_bandwidth_dcap(0)==0);
-#if CONFIG_IDF_TARGET_ESP32S2
+#if CONFIG_IDF_TARGET_ESP32C3
+ assert(rx_bandwidth_dcap(RX_BANDWIDTH_MAX)==0);
+ assert(rx_bandwidth_dcap(RX_BANDWIDTH_MIN)==63);
+#elif CONFIG_IDF_TARGET_ESP32S2
  assert(rx_bandwidth_dcap(RX_BANDWIDTH_MAX)==8);
  assert(rx_bandwidth_dcap(RX_BANDWIDTH_MIN)==63);
 #elif CONFIG_IDF_TARGET_ESP32
@@ -36,6 +39,10 @@ int main(void) {
 #if CONFIG_IDF_TARGET_ESP32
  assert(rx_bandwidth_dcap(48)==16);assert(rx_bandwidth_dcap(20)==64);
  assert(rx_bandwidth_dcap(32)==32);assert(rx_bandwidth_dcap(15)==96);
+#elif CONFIG_IDF_TARGET_ESP32C3
+ assert(RX_BANDWIDTH_MIN==14 && RX_BANDWIDTH_MAX==62);
+ assert(rx_bandwidth_dcap(50)==4);assert(rx_bandwidth_dcap(34)==16);
+ assert(rx_bandwidth_dcap(20)==40);assert(rx_bandwidth_dcap(21)==37);
 #elif CONFIG_IDF_TARGET_ESP32C5
  assert(RX_BANDWIDTH_MIN==11 && RX_BANDWIDTH_MAX==23);
  assert(rx_bandwidth_dcap(20)==12);assert(rx_bandwidth_dcap(16)==24);
@@ -59,7 +66,7 @@ int main(void) {
  return 0;
 }
 '''
-        for chip in ['ESP32','ESP32C5','ESP32C6','ESP32C61','ESP32S2','ESP32S3','ESP32S31']:
+        for chip in ['ESP32','ESP32C3','ESP32C5','ESP32C6','ESP32C61','ESP32S2','ESP32S3','ESP32S31']:
             self.compile_run(source,[f'-DCONFIG_IDF_TARGET_{chip}=1'])
 
     def test_c61_mirror_and_agc_restore(self):
@@ -110,5 +117,30 @@ int main(void){
  values[0]=0xc4;values[1]=0xc6;rx_filter=16;filter_apply();
  assert(values[0]==0x90 && values[1]==0x90);filter_restore();
  assert(values[0]==0xc4 && values[1]==0xc6);
+}
+''')
+
+    def test_c3_filter_restores_calibration(self):
+        source=(ROOT/'main/c3_main.c').read_text()
+        functions=source[source.index('static int rx_filter'):source.index('static unsigned frequency_mhz')]
+        self.compile_run(r'''
+#include <assert.h>
+static unsigned values[2]={0xe3,0xa4},writes;
+unsigned rom1_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){
+ assert(b==0x67 && h==1 && (r==4 || r==5));return values[r-4];
+}
+void rom1_chip_i2c_writeReg(unsigned b,unsigned h,unsigned r,unsigned v){
+ assert(b==0x67 && h==1 && (r==4 || r==5));values[r-4]=v;writes++;
+}
+''' + functions + r'''
+int main(void){
+ rx_filter_apply();rx_filter_restore();assert(writes==0);
+ rx_filter=0;rx_filter_apply();assert(values[0]==0xc0 && values[1]==0x80);
+ rx_filter_restore();assert(values[0]==0xe3 && values[1]==0xa4);
+ rx_filter=63;rx_filter_apply();assert(values[0]==0xff && values[1]==0xbf);
+ rx_filter_restore();assert(values[0]==0xe3 && values[1]==0xa4);
+ values[0]=0xd0;values[1]=0x92;rx_filter=16;rx_filter_apply();
+ assert(values[0]==0xd0 && values[1]==0x90);rx_filter_restore();
+ assert(values[0]==0xd0 && values[1]==0x92);
 }
 ''')

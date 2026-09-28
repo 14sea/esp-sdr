@@ -40,7 +40,7 @@ def main():
     output = args.output.resolve() / args.profile
     if output.exists():
         parser.error(f'Output already exists: {output}; choose a fresh artifact directory')
-    env = dict(os.environ, IDF_PY_BUILD_JOBS=str(args.jobs), IDF_COMPONENT_MANAGER='1' if profile['submodules'] else '0')
+    env = dict(os.environ, IDF_PY_BUILD_JOBS=str(args.jobs), IDF_COMPONENT_MANAGER='0')
     command = [sys.executable, str(Path(sdk) / 'tools/idf.py')]
     if profile['preview']:
         command.append('--preview')

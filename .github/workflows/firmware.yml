@@ -33,8 +33,6 @@ jobs:
       matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: ${{ matrix.submodules && 'recursive' || 'false' }}
       - name: Check out pinned ESP-IDF
         uses: actions/checkout@v4
         with:

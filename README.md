@@ -1,8 +1,17 @@
 # ESP-SDR firmware
 
 Receive-only I/Q snapshot firmware for ESP32 chips. Uses internal RAM; no PSRAM
-or extra peripherals required. Browser viewer and installer:
-[esp-web-sdr](../esp-web-sdr/README.md).
+or extra peripherals required.
+
+With the help of LLMs, we discovered an undocumented feature in Espressif's
+ESP32 chips that bypasses the fixed-function modems to capture raw IQ baseband
+samples. ESP-SDR uses this feature to turn supported chips into low-cost
+software-defined radio receivers for the 2.4 GHz band (and the 5 GHz band on
+the ESP32-C5).
+
+[Project overview](https://espargos.net/espsdr/) ·
+[Browser SDR viewer](https://espargos.net/espsdr/app/) ·
+[Browser firmware installer](https://espargos.net/espsdr/app/flash.html)
 
 **Parts of the firmware code are AI-generated.**
 While we have a very good understanding of how the IQ sampling functionality works on the ESP32-C61 chip (used in our ESPARGOS One array), making IQ sampling work on the whole range of ESP32 family chips would have been too much work without LLM support.
@@ -13,14 +22,14 @@ While we have a very good understanding of how the IQ sampling functionality wor
 | --- | --- | --- | --- | --- |
 | ESP32 | Supported | — | GPIO1 / GPIO3 | 2 MB |
 | ESP32-C2 | 🚧 Unsupported | — | — | — |
-| ESP32-C3 | 🚧 Unsupported | — | — | — |
+| ESP32-C3 | Supported | Serial/JTAG | GPIO21 / GPIO20 | 2 MB |
 | ESP32-C5 | Supported | Serial/JTAG | — | 2 MB |
 | ESP32-C6 | Supported | Serial/JTAG | GPIO16 / GPIO17 | 2 MB |
 | ESP32-C61 | Supported | Serial/JTAG | GPIO11 / GPIO10 | 2 MB |
 | ESP32-H2 | 🚧 Unsupported | — | — | — |
 | ESP32-H21 | 🚧 Unsupported | — | — | — |
 | ESP32-H4 | 🚧 Unsupported | — | — | — |
-| ESP32-P4 | 🚧 Unsupported; no integrated radio | — | — | — |
+| ESP32-P4 | ❌ Unsupported; no integrated radio | — | — | — |
 | ESP32-S2 | Supported | USB-OTG CDC | GPIO43 / GPIO44 | 4 MB |
 | ESP32-S3 | Supported | Serial/JTAG | GPIO43 / GPIO44 | 2 MB |
 | ESP32-S31 | Supported | Serial/JTAG | GPIO58 / GPIO59 | 2 MB |
@@ -64,6 +73,8 @@ bandwidths, sample rates and bit depths. `BANDWIDTH <MHz>` sets approximate
 analog bandwidth; zero selects the widest setting.
 
 - **ESP32:** 2412–2472 MHz in 5 MHz steps; 80/40/16 MS/s.
+- **C3:** 2412–2472 MHz in 5 MHz steps, plus 2484 MHz; 80 MS/s;
+  14–62 MHz analog bandwidth. Native USB tested; UART build-verified.
 - **C5:** 11–23 MHz bandwidth.
 - **C61:** 2400–2500 MHz in 1 MHz steps; 80/40/20/10/8/4 MS/s;
   13–54 MHz bandwidth.
@@ -77,5 +88,4 @@ Captures have gaps; nominal sample rates exceed sustained serial throughput.
 Gain and power are uncalibrated. Extended tuning does not guarantee PLL lock
 or reception; the viewer warns outside standard Wi-Fi centers.
 
-See [receive-control details](docs/rx-controls.md) and
-[S31 capture internals](docs/s31-capture.md).
+See [receive-control details](docs/rx-controls.md).

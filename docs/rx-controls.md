@@ -74,5 +74,3 @@ S2 reserves 48 KiB at `0x3fff0000–0x3fffc000` and its IRAM aliases, leaving th
 top bank accessible to ROM USB. Its 12,284-sample maximum leaves four overrun
 canaries. Source 0 supplies signed 10-bit I/Q; clock bits 15/16 select nominal
 40/16 MS/s from the 80 MS/s source.
-
-See [S31 capture details](s31-capture.md) for its memory and CPU handoff.
