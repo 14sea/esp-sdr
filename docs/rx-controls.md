@@ -8,14 +8,13 @@ Protocol 6 advertises `RXLIMITS` in `CAPS`. Query `LIMITS?` after `INFO` for:
 - `rates`: supported nominal sample rates in samples/second.
 - `bits`: supported precision per I/Q component.
 
-Clients should use these limits rather than hard-code chip capabilities.
 Hardware AGC is the default; manual gain indices are not absolute gain in dB.
 
 ## Gain implementation
 
 Gain maxima come from the calibrated PHY tables where available. C61 and S3
 read AGCPWR_CTRL7 bits 8–14; C5 uses its PHY gain-table setup; S31 snapshots
-its generated table. Do not substitute a chip-independent maximum.
+its generated table.
 
 C61 manual gain follows `sensor-firmware/main/iq/modem.c`: mirror the forced
 low-table entry into slot index+80, set AGC initial gain/threshold, and disable
@@ -27,7 +26,7 @@ selecting an uncalibrated second-table entry.
 
 `BANDWIDTH <MHz>` interpolates the chip's capacitor-code curve in
 `main/rx_bandwidth.h`. Zero selects the widest setting, not filter bypass.
-Out-of-range requests are rejected. The browser does not duplicate these curves.
+Out-of-range requests are rejected.
 
 | Chip | Approximate bandwidth | BBTOP registers | Code width |
 | --- | --- | --- | --- |
@@ -53,7 +52,7 @@ its numeric maximum uses code 8, while wide open selects code 0.
 
 C6 currently exposes only nominal 80 MS/s. Other tested clock/divider settings
 and dump sources did not establish a reliable lower-rate I/Q path. Unsupported
-rates are rejected; this is not a claim that the hardware cannot support them.
+rates are rejected.
 
 C6 and S2 advertise `TUNEEXT` and report whole-MHz attempt ranges through
 `RANGE?`: 2100–2800 MHz and 2212–2813 MHz respectively. Standard Wi-Fi centers

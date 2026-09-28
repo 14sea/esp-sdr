@@ -1,8 +1,8 @@
 # ESP-SDR firmware
 
-Receive-only I/Q snapshot firmware for ESP32 chips, with a browser viewer and
-installer in [esp-web-sdr](../esp-web-sdr/README.md). The firmware uses internal
-RAM and needs no PSRAM, display, status LED, buttons, or board-revision setup.
+Receive-only I/Q snapshot firmware for ESP32 chips. Uses internal RAM; no PSRAM
+or extra peripherals required. Browser viewer and installer:
+[esp-web-sdr](../esp-web-sdr/README.md).
 
 **Parts of the firmware code are AI-generated.**
 
@@ -24,39 +24,25 @@ RAM and needs no PSRAM, display, status LED, buttons, or board-revision setup.
 | ESP32-S3 | Supported | Serial/JTAG | GPIO43 / GPIO44 | 2 MB |
 | ESP32-S31 | Supported | Serial/JTAG | GPIO58 / GPIO59 | 2 MB |
 
-Families follow [Espressif's chip overview](https://docs.espressif.com/projects/esp-techpedia/en/latest/esp-friends/get-started/board-selection.html).
-Transport and flash columns describe this firmware, not every chip's hardware.
-🚧 means no ESP-SDR backend is available; it does not promise a future port.
-
-Each chip needs its own RF backend; selecting another ESP-IDF target does not
-add support. Images work on larger flash devices without expanding partitions.
-Captures have gaps: ADC sample rate is not sustained USB/UART throughput.
-Gain and power measurements are uncalibrated.
-
 ## Connect
 
 Use native USB or a 3.3 V USB-to-UART adapter with crossed TX/RX and common
 ground. UART defaults to **2,000,000 baud, 8N1, no flow control** on the pins
 above. Native USB ignores the host baud setting.
 
-The `ESP_SDR_UART_ENABLED`, `ESP_SDR_UART_BAUD`, `ESP_SDR_UART_TX_PIN` and
-`ESP_SDR_UART_RX_PIN` menuconfig options control UART. Disabling optional UART
-leaves its pins unused by the application and keeps native USB available.
-S2 UART support is build-verified but untested with an adapter; older USB-only
-S2 images must be reflashed before using UART.
+Configure UART with the `ESP_SDR_UART_*` menuconfig options.
+S2 UART is build-verified but untested with an adapter; reflash older USB-only
+images to enable it.
 
-Both ports may be connected, but one client owns the radio. Other clients
-receive `ERR busy` until `RELEASE` or five seconds of idle time.
-`CAPS SERIALLEASE` advertises this behavior; `DUALSERIAL` indicates UART
-availability alongside USB. `TRANSPORT?` returns `TRANSPORT USB 0` or
-`TRANSPORT UART <baud>`.
+One client controls the radio at a time. `RELEASE` or five seconds of idle time
+releases it; other clients receive `ERR busy`.
 
 ## Build and flash
 
 [firmware-targets.json](firmware-targets.json) lists the supported profiles and
 pins their ESP-IDF commits, including the preview SDK for S31. Check out the
 matching SDK, initialize its submodules, run `install.sh <target>`, and source
-`export.sh`. These backends do not need this repository's PHY submodules.
+`export.sh`.
 
 Use a separate build directory and configuration for each chip:
 
@@ -67,45 +53,28 @@ idf.py -B build-s3 -DIDF_TARGET=esp32s3 \
 idf.py -B build-s3 -p /dev/ttyACM0 flash
 ```
 
-Substitute the target and paths for your chip. S31 requires the pinned preview
-SDK and `idf.py --preview`. Keep large build directories on disk rather than
-in a RAM-backed `/tmp`.
+Substitute the target and paths for your chip. S31 also requires `idf.py --preview`.
 
-## Receive controls and chip limits
+## Receive controls
 
-All backends start with hardware AGC. `GAIN HARDWARE` restores it;
-`GAIN MANUAL <index>` selects a PHY gain-table entry. Protocol 6 advertises
-`RXLIMITS` in `CAPS`; query `LIMITS?` after `INFO` for supported gain indices,
-bandwidths, sample rates and bit depths. The web viewer uses these limits.
+Hardware AGC is the default. `GAIN MANUAL <index>` sets manual gain;
+`GAIN HARDWARE` restores AGC. `LIMITS?` reports available gain indices,
+bandwidths, sample rates and bit depths. `BANDWIDTH <MHz>` sets approximate
+analog bandwidth; zero selects the widest setting.
 
-`BANDWIDTH <MHz>` sets approximate analog bandwidth; zero selects the widest
-setting. Out-of-range values are rejected. Bandwidth mappings and gain behavior
-are documented in [receive-control notes](docs/rx-controls.md).
+- **ESP32:** 2412–2472 MHz in 5 MHz steps; 80/40/16 MS/s.
+- **C5:** 11–23 MHz bandwidth.
+- **C61:** 2400–2500 MHz in 1 MHz steps; 80/40/20/10/8/4 MS/s;
+  13–54 MHz bandwidth.
+- **C6:** tuning attempts over 2100–2800 MHz; 80 MS/s; 12–54 MHz bandwidth.
+- **S2:** tuning attempts over 2212–2813 MHz; 80/40/16 MS/s;
+  15–60 MHz bandwidth; up to 12,284 complex samples per capture.
+- **S3:** 13–69 MHz bandwidth.
+- **S31:** 80/40/20/10/8/4 MS/s; 13–54 MHz bandwidth.
 
-- **ESP32:** 2412–2472 MHz in 5 MHz steps; nominal 80/40/16 MS/s snapshots.
-- **C5:** approximately 11–23 MHz analog bandwidth, using its own measured
-  filter curve.
-- **C61:** whole-MHz tuning from 2400–2500 MHz; up to 16,380 complex samples
-  in IQ8/IQ10 at nominal 80/40/20/10/8/4 MS/s; approximately 13–54 MHz
-  bandwidth. Divider rates follow the reference sensor firmware; independent
-  RF/sample-rate calibration remains outstanding.
-- **C6:** up to 16,380 complex samples in IQ8/IQ10 at nominal 80 MS/s;
-  approximately 12–54 MHz bandwidth. Other rates and digital-filter modes
-  remain unverified and are rejected. `TUNEEXT` allows whole-MHz tuning
-  attempts from 2100–2800 MHz; standard Wi-Fi centers use calibrated tuning.
-- **S2:** up to 12,284 complex samples in IQ8/IQ10 at nominal 80/40/16 MS/s;
-  gain indices 0–82; approximately 15–60 MHz bandwidth; whole-MHz tuning
-  attempts from 2212–2813 MHz.
-- **S3:** approximately 13–69 MHz bandwidth using a separate measured curve.
-- **S31:** up to 16,380 complex samples in IQ8/IQ10 at nominal
-  80/40/20/10/8/4 MS/s; approximately 13–54 MHz bandwidth. The serial snapshot
-  backend replaces the earlier vendor-USB/Ethernet image and does not advertise
-  the old PARLIO 16 MS/s mode. See [S31 capture details](docs/s31-capture.md).
+Captures have gaps; nominal sample rates exceed sustained serial throughput.
+Gain and power are uncalibrated. Extended tuning does not guarantee PLL lock
+or reception; the viewer warns outside standard Wi-Fi centers.
 
-Extended tuning ranges are attempt ranges, not guarantees of PLL lock or
-reception. The web viewer warns when tuning outside standard Wi-Fi centers.
-
-The chip backends and shared serial transport live in `main/`. C5/C61/C6 share
-`c5_c61_main.c` with chip-specific definitions. The S2-only compatibility
-component in `platform/esp32s2/` fixes the pinned SDK's ROM USB descriptor
-lifetime without changing other targets' SDK code.
+See [receive-control details](docs/rx-controls.md) and
+[S31 capture internals](docs/s31-capture.md).
