@@ -11,7 +11,7 @@ class C3Commands(unittest.TestCase):
     def test_commands(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / 'main/c3_main.c').read_text()
-        frequency = source[source.index('static bool frequency_valid('):source.index('#define send_bytes')]
+        frequency = source[source.index('#define C3_FREQ_MIN'):source.index('#define send_bytes')]
         handler = source[source.index('static void handle_command('):source.index('void app_main(')]
         stub = r'''
 #include <assert.h>
@@ -25,6 +25,9 @@ class C3Commands(unittest.TestCase):
 #define CONFIG_ESP_SDR_UART_ENABLED 1
 static unsigned frequency_mhz, captures, last_samples, last_format;
 static bool rx_ready;
+static unsigned calibrated_mhz,pll_mhz,pll_writes;
+static void set_chanfreq(unsigned mhz,unsigned mode) { calibrated_mhz=mhz; }
+static void phy_set_freq(unsigned mhz,int offset) { pll_mhz=mhz;pll_writes++; }
 static int rx_filter;
 static unsigned rom1_chip_i2c_readReg(unsigned a,unsigned b,unsigned c) { return 4; }
 static char response[256];
@@ -46,7 +49,7 @@ static void command(const char *s) { char line[128];snprintf(line,sizeof(line),"
 int main(void) {
  command("INFO");assert(!strcmp(response,"C3SDR 6 burst 16380\n"));
  command("CAPS");assert(strstr(response,"RXLIMITS") && strstr(response,"SERIALLEASE") && strstr(response,"HWAGC"));
- assert(!strstr(response,"TUNEEXT") && strstr(response,"LPFANA") && !strstr(response,"RX40"));
+ assert(strstr(response,"TUNEEXT") && strstr(response,"LPFANA") && !strstr(response,"RX40"));
  command("LIMITS?");assert(strstr(response,"\"bandwidth\":[14,62,1,0]") && strstr(response,"\"rates\":[80000000]"));
  command("TRANSPORT?");assert(!strcmp(response,"TRANSPORT UART 2000000\n"));
  command("SYNC 987654321");assert(!strcmp(response,"SYNC 987654321\n"));
@@ -58,12 +61,20 @@ int main(void) {
  }
  const char *bad[]={"CAP16 16381 0","CAP20 255 0","CAP20 256 0 junk",
  "RXRUN 256 0 0 20","RXRUN 256 0 1001 20","RXRUN 256 0 2 32","FREQ 2412 junk",
- "FREQ 2412.5","FREQ 2413","FREQ 5180","FREQ 2480","GAIN AUTO","BANDWIDTH 13","BANDWIDTH 63","BANDWIDTH 20 junk",
+ "FREQ 2412.5","FREQ 2099","FREQ 2801","FREQ 5180","GAIN AUTO","BANDWIDTH 13","BANDWIDTH 63","BANDWIDTH 20 junk",
  "TX20 256 1000000 0","CW START","REPLAY20 256 40000000 0"};
  for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);i++){command(bad[i]);assert(!strcmp(response,"ERR command\n"));}
  assert(captures==4);
  for(unsigned f=2412;f<=2472;f+=5){
    char c[40];snprintf(c,sizeof(c),"FREQ %u",f);command(c);assert(frequency_mhz==f && rx_ready);
+ }
+ command("RANGE?");assert(!strcmp(response,"RANGE 2100 2800 1\n"));
+ for(unsigned f=2100;f<=2800;f++){
+   char c[40];snprintf(c,sizeof(c),"FREQ %u",f);command(c);assert(frequency_mhz==f);
+   bool channel=(f>=2412 && f<=2472 && (f-2412)%5==0)||f==2484;
+   unsigned before=pll_writes;tune_rx(f);
+   assert(calibrated_mhz==(channel?f:2412));
+   assert(pll_writes==before+!channel);if(!channel)assert(pll_mhz==f);
  }
  command("BANDWIDTH 20");assert(rx_filter==40);
  command("BANDWIDTH 0");assert(rx_filter==0);

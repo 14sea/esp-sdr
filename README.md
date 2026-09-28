@@ -20,19 +20,19 @@ While we have a very good understanding of how the IQ sampling functionality wor
 
 | Chip | Status | Native USB | UART0 TX / RX | Minimum flash |
 | --- | --- | --- | --- | --- |
-| ESP32 | Supported | — | GPIO1 / GPIO3 | 2 MB |
+| ESP32 | ✅ Supported | — | GPIO1 / GPIO3 | 2 MB |
 | ESP32-C2 | 🚧 Unsupported | — | — | — |
-| ESP32-C3 | Supported | Serial/JTAG | GPIO21 / GPIO20 | 2 MB |
-| ESP32-C5 | Supported | Serial/JTAG | — | 2 MB |
-| ESP32-C6 | Supported | Serial/JTAG | GPIO16 / GPIO17 | 2 MB |
-| ESP32-C61 | Supported | Serial/JTAG | GPIO11 / GPIO10 | 2 MB |
+| ESP32-C3 | ✅ Supported | Serial/JTAG | GPIO21 / GPIO20 | 2 MB |
+| ESP32-C5 | ✅ Supported | Serial/JTAG | — | 2 MB |
+| ESP32-C6 | ✅ Supported | Serial/JTAG | GPIO16 / GPIO17 | 2 MB |
+| ESP32-C61 | ✅ Supported | Serial/JTAG | GPIO11 / GPIO10 | 2 MB |
 | ESP32-H2 | 🚧 Unsupported | — | — | — |
 | ESP32-H21 | 🚧 Unsupported | — | — | — |
 | ESP32-H4 | 🚧 Unsupported | — | — | — |
 | ESP32-P4 | ❌ Unsupported; no integrated radio | — | — | — |
-| ESP32-S2 | Supported | USB-OTG CDC | GPIO43 / GPIO44 | 4 MB |
-| ESP32-S3 | Supported | Serial/JTAG | GPIO43 / GPIO44 | 2 MB |
-| ESP32-S31 | Supported | Serial/JTAG | GPIO58 / GPIO59 | 2 MB |
+| ESP32-S2 | ✅ Supported | USB-OTG CDC | GPIO43 / GPIO44 | 4 MB |
+| ESP32-S3 | ✅ Supported | Serial/JTAG | GPIO43 / GPIO44 | 2 MB |
+| ESP32-S31 | ✅ Supported | Serial/JTAG | GPIO58 / GPIO59 | 2 MB |
 
 ## Connect
 
@@ -73,7 +73,7 @@ bandwidths, sample rates and bit depths. `BANDWIDTH <MHz>` sets approximate
 analog bandwidth; zero selects the widest setting.
 
 - **ESP32:** 2412–2472 MHz in 5 MHz steps; 80/40/16 MS/s.
-- **C3:** 2412–2472 MHz in 5 MHz steps, plus 2484 MHz; 80 MS/s;
+- **C3:** tuning attempts over 2100–2800 MHz in 1 MHz steps; 80 MS/s;
   14–62 MHz analog bandwidth. Native USB tested; UART build-verified.
 - **C5:** 11–23 MHz bandwidth.
 - **C61:** 2400–2500 MHz in 1 MHz steps; 80/40/20/10/8/4 MS/s;

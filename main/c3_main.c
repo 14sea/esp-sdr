@@ -30,6 +30,7 @@ extern void rom_pbus_xpd_rx_on(unsigned);
 extern void rom_pbus_xpd_tx_off(void);
 extern void rom_set_rxclk_en(unsigned);
 extern void set_chanfreq(unsigned,unsigned);
+extern void phy_set_freq(unsigned,int);
 extern unsigned rom1_chip_i2c_readReg(unsigned,unsigned,unsigned);
 extern void rom1_chip_i2c_writeReg(unsigned,unsigned,unsigned,unsigned);
 static int rx_filter=-1;
@@ -46,8 +47,18 @@ static void rx_filter_restore(void) {
 }
 static unsigned frequency_mhz=2412;
 static bool rx_ready;
+#define C3_FREQ_MIN 2100u
+#define C3_FREQ_MAX 2800u
 static bool frequency_valid(unsigned mhz) {
-    return (mhz>=2412 && mhz<=2472 && (mhz-2412)%5==0) || mhz==2484;
+    return mhz>=C3_FREQ_MIN && mhz<=C3_FREQ_MAX;
+}
+static void tune_rx(unsigned mhz) {
+    bool channel=(mhz>=2412 && mhz<=2472 && (mhz-2412)%5==0) || mhz==2484;
+    /* Calibrate using a real Wi-Fi channel, then program exact PLL MHz.
+     * The channel API otherwise rounds off-grid frequencies. This is an
+     * attempt range; PLL lock and reception are not guaranteed throughout. */
+    set_chanfreq(channel?mhz:2412,0);
+    if(!channel)phy_set_freq(mhz,0);
 }
 #define send_bytes burst_serial_send
 static void reply(const char *s) { (void)send_bytes(s,strlen(s)); }
@@ -56,7 +67,7 @@ static void reply(const char *s) { (void)send_bytes(s,strlen(s)); }
 
 static void prepare_rx(void) {
     if(rx_ready)return;
-    set_chanfreq(frequency_mhz,0);
+    tune_rx(frequency_mhz);
     stop_tx_tone(1);
     rom_pbus_workmode();
     rom_pbus_xpd_tx_off();
@@ -158,7 +169,7 @@ static void handle_command(char *line) {
 #if CONFIG_ESP_SDR_UART_ENABLED
               "DUALSERIAL "
 #endif
-              "LPFANA GAIN HWAGC IQ8\n");
+              "TUNEEXT LPFANA GAIN HWAGC IQ8\n");
     }
     else if(sscanf(line,"BANDWIDTH %u %c",&n,&extra)==1 &&
             (!n || (n>=RX_BANDWIDTH_MIN && n<=RX_BANDWIDTH_MAX))) {
@@ -169,6 +180,9 @@ static void handle_command(char *line) {
     else if(!strcmp(line,"LPF?")) {
         char answer[80];snprintf(answer,sizeof(answer),"LPF %d %u %u\n",rx_filter,
             rom1_chip_i2c_readReg(0x67,1,4)&63,rom1_chip_i2c_readReg(0x67,1,5)&63);reply(answer);
+    }
+    else if(!strcmp(line,"RANGE?")) {
+        char answer[64];snprintf(answer,sizeof(answer),"RANGE %u %u 1\n",C3_FREQ_MIN,C3_FREQ_MAX);reply(answer);
     }
     else if(!strcmp(line,"INFO")) reply("C3SDR 6 burst 16380\n");
     else if(sscanf(line,"FREQ %u %c",&n,&extra)==1 && frequency_valid(n)) {
