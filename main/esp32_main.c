@@ -18,6 +18,7 @@
 #include "esp_heap_caps.h"
 #include "nvs_flash.h"
 #include "soc/soc.h"
+#include "soc/rtc.h"
 #include "soc/dport_reg.h"
 #include "soc/dport_access.h"
 #include "heap_memory_layout.h"
@@ -141,6 +142,22 @@ static void apply_gain(void) {
     else REG_WRITE(RX_GAIN, (gain & 0x7fffff) | (gain_code << 24) | BIT(23));
 }
 
+extern void set_chanfreq(unsigned mhz, unsigned mode);
+extern void rom_set_rf_freq_offset(unsigned crystal, unsigned mhz, int offset);
+
+static void tune_rx(unsigned mhz) {
+    bool channel = (mhz >= 2412 && mhz <= 2472 && (mhz-2412)%5 == 0) || mhz == 2484;
+    /* Calibrate on a real channel before bypassing the channel-number mapping.
+     * Use the PHY entry point even for repeated requests: the Wi-Fi API can
+     * skip a channel it thinks is already selected after a direct PLL retune. */
+    set_chanfreq(channel ? mhz : 2412, 0);
+    if (!channel) {
+        unsigned xtal = rtc_clk_xtal_freq_get();
+        /* ROM crystal selector: 0=40 MHz, 1=26 MHz, 2=24 MHz. */
+        rom_set_rf_freq_offset(xtal == 26 ? 1 : xtal == 24 ? 2 : 0, mhz, 0);
+    }
+}
+
 static bool capture_rate(unsigned n, unsigned rate, unsigned format) {
     if (n < 256 || n > MAX_SAMPLES || (rate != 0 && rate != 1 && rate != 6)) {
         reply("ERR capture_settings\n"); return false;
@@ -153,7 +170,7 @@ static void command(const char *line) {
     uint64_t nonce;
     char extra;
     if (!strcmp(line, "INFO")) reply("ESP32SDR 6 burst 16380\n");
-    else if (!strcmp(line, "CAPS")) reply("CAPS RXLIMITS SERIALLEASE RX40 RX16 LPFANA GAIN HWAGC IQ8\n");
+    else if (!strcmp(line, "CAPS")) reply("CAPS RXLIMITS SERIALLEASE TUNEEXT RX40 RX16 LPFANA GAIN HWAGC IQ8\n");
     else if (sscanf(line, "BANDWIDTH %u %c", &n, &extra)==1 &&
              (!n || (n>=RX_BANDWIDTH_MIN && n<=RX_BANDWIDTH_MAX))) {
         rx_filter=rx_bandwidth_dcap(n); reply("OK\n");
@@ -165,7 +182,7 @@ static void command(const char *line) {
     else if (!strcmp(line, "TRANSPORT?")) reply("TRANSPORT UART %u\n", burst_serial_baud());
     else if (!strcmp(line, "LIMITS?")) {
         reply("LIMITS {\"gain\":[0,%u,1],\"bandwidth\":[%u,%u,1,0],\"rates\":[80000000,40000000,16000000],\"bits\":[8,10]}\n", gain_max, RX_BANDWIDTH_MIN, RX_BANDWIDTH_MAX);
-    } else if (!strcmp(line, "RANGE?")) reply("RANGE 2412 2472 5\n");
+    } else if (!strcmp(line, "RANGE?")) reply("RANGE 2100 2800 1\n");
     else if (sscanf(line, "SYNC %"SCNu64" %c", &nonce, &extra) == 1) reply("SYNC %"PRIu64"\n", nonce);
     else if (!strcmp(line, "RELEASE")) reply("OK\n");
     else if (!strcmp(line, "GAIN?")) reply("GAIN %s %d 0 %u %u\n",
@@ -174,9 +191,8 @@ static void command(const char *line) {
     else if (!strcmp(line, "GAIN HARDWARE")) { hardware_agc = true; apply_gain(); reply("OK\n"); }
     else if (sscanf(line, "GAIN MANUAL %u %c", &n, &extra) == 1 && n <= gain_max) {
         hardware_agc = false; gain_code = n; apply_gain(); reply("OK\n");
-    } else if (sscanf(line, "FREQ %u %c", &n, &extra) == 1 && n >= 2412 && n <= 2472 && (n-2412)%5 == 0) {
-        esp_err_t e = esp_wifi_set_channel((n-2412)/5+1, WIFI_SECOND_CHAN_NONE);
-        if (e != ESP_OK) { reply("ERR tuning\n"); return; }
+    } else if (sscanf(line, "FREQ %u %c", &n, &extra) == 1 && n >= 2100 && n <= 2800) {
+        tune_rx(n);
         prepare_rx(); apply_gain(); reply("OK\n");
     } else if (sscanf(line, "CAP16 %u %u %c", &n, &rate, &extra) == 2) capture_rate(n, rate, 8);
     else if (sscanf(line, "CAP20 %u %u %c", &n, &rate, &extra) == 2) capture_rate(n, rate, 10);

@@ -72,7 +72,7 @@ Hardware AGC is the default. `GAIN MANUAL <index>` sets manual gain;
 bandwidths, sample rates and bit depths. `BANDWIDTH <MHz>` sets approximate
 analog bandwidth; zero selects the widest setting.
 
-- **ESP32:** 2412–2472 MHz in 5 MHz steps; 80/40/16 MS/s.
+- **ESP32:** tuning attempts over 2100–2800 MHz in 1 MHz steps; 80/40/16 MS/s.
 - **C3:** tuning attempts over 2100–2800 MHz in 1 MHz steps; 80 MS/s;
   14–62 MHz analog bandwidth. Native USB tested; UART build-verified.
 - **C5:** 11–23 MHz bandwidth.
