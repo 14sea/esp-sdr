@@ -1,11 +1,12 @@
-# Firmware artifacts for the website
+# Firmware artifacts for a static website
 
-`esp-sdr` builds firmware; `esp-web-sdr` consumes versioned manifests and
-binaries. Neither build needs the other repository's source checkout.
+Firmware CI builds and packages the binaries. ESP-WebSDR serves ordinary static
+files and loads the firmware catalog at runtime. **There is no website build.**
 
-## Export
+## Per-profile export
 
-After an ESP-IDF build, export one directory per chip/profile:
+`tools/build_firmware.py` builds a catalog profile and invokes the exporter.
+For an existing ESP-IDF build, export it directly:
 
 ```sh
 python3 tools/export_web_firmware.py \
@@ -13,53 +14,67 @@ python3 tools/export_web_firmware.py \
   --version "$FIRMWARE_COMMIT" --allow-larger-flash --output artifacts/esp32s3
 ```
 
-The generic C5 and S3 builds need 2 MB flash and no board peripherals. They use
-a fixed layout that is also valid on larger flash. `--allow-larger-flash`
-explicitly advertises that compatibility. Omit it for profiles requiring the
-exact configured size. Profiles with external wiring or memory requirements
-must document those requirements in their labels/release documentation.
+Each profile artifact contains its manifest, image directory, `flash_args` and
+`flash_command.txt`. The build helper also records the SDK revision in
+`build-info.json`. The exporter rejects diagnostic builds and invalid layouts.
+Flash-size detection is resolved to the concrete configured capacity. A new
+output folder is required to avoid mixing releases.
 
-Use stable profile IDs such as `esp32c5` and `esp32s3`. The CLI retains the
-`--board` name for compatibility with existing CI callers; it identifies a
-firmware profile, not a PCB revision. The exporter reads target, flash settings
-and offsets from ESP-IDF output, rejects diagnostic builds and invalid layouts,
-and requires a new output directory to prevent mixing releases.
+C5/S3 profiles use a 2 MB layout, no PSRAM or board peripherals.
+`--allow-larger-flash` advertises compatibility with larger physical flash.
+Omit it for profiles requiring an exact size. Hardware-specific profiles such
+as S31 retain their requirements in their labels and documentation.
 
-```text
-artifact/
-  manifest.json
-  esp32s3/
-    0-bootloader.bin
-    1-partition-table.bin
-    2-esp_sdr.bin
-```
+## Combined CI artifact
 
-Schema version 1 has a `version` and `variants` object. Each variant includes
-`revision` (profile ID), `label`, `target`, `chip` (esptool-js name), `version`,
-`flash_size`, `flash_size_policy`, `flash_settings` and `parts`.
-`flash_size_policy` is `exact` (also the default when omitted) or `minimum`.
-Each part has `name`, numeric byte `offset`, `size`, `sha256` and `md5`.
-All images must fit within the declared layout even when larger flash is allowed.
-
-## Import and publish
-
-From the website checkout:
+After all matrix builds succeed, firmware CI collects the exported profiles:
 
 ```sh
-python3 build_standalone.py
-python3 flasher/build.py --artifacts /artifacts/esp32c5 /artifacts/esp32s3
+python3 tools/collect_firmware.py --input downloaded-firmware \
+  --output firmware --catalog firmware-targets.json
 ```
 
-These artifacts form the complete release set. The website verifies all sizes,
-hashes and layouts, then embeds the binaries and manifests into `flash.html`.
-Publish it alongside `spectrum.html`. Without `--artifacts`, the flasher rebuild
-uses its checked-in release inputs. Firmware revision comes from the artifact,
-never from the website's Git revision. Flash chip and capacity checks occur
-before writing; the image's fixed layout is preserved on larger flash chips.
+The collector validates every profile, size, checksum, image range and path,
+rejects duplicates, and requires the complete catalog set. It copies files
+without buffering the full release in RAM. The combined `esp-sdr-firmware`
+artifact has this layout:
 
-The artifact format supports additional chips, but flashing also requires a
-compatible esptool-js target. Viewer support separately requires a compatible
-I/Q transport driver. The included viewer currently supports C5/S3 protocol 6;
-S31 and C61 do not acquire viewer support from the manifest alone.
+```text
+manifest.json
+esp32c5/
+  0-bootloader.bin
+  1-partition-table.bin
+  2-esp_sdr.bin
+  build-info.json
+  flash_args
+  flash_command.txt
+esp32s3/...
+esp32s31/...
+```
 
-This defines the handoff for a future CI pipeline; it does not configure one.
+Download/extract this artifact and deploy its contents as `esp-web-sdr/firmware/`.
+The website fetches `firmware/manifest.json` and constructs its options directly.
+No website scripts, SDK, or firmware source are needed for this deployment.
+Publish the complete folder together, preferably atomically; inconsistent files
+are rejected by the browser's integrity checks before flashing.
+
+## Manifest contract
+
+Schema version 1 contains `version` and a nonempty `variants` object keyed by
+stable profile IDs. Each variant includes `label`, `target`, `chip` (esptool-js
+name), `version`, `flash_size`, `flash_size_policy`, `flash_settings` and `parts`.
+The policy is `exact` by default or `minimum` to allow larger physical flash.
+Each image has a basename `name`, numeric byte `offset`, `size`, `sha256` and
+`md5`. Its URL is `<profile>/<name>` relative to the manifest. No binaries are
+embedded in JSON or HTML. The browser downloads only a selected profile when
+installing, and validates all its images before writing.
+
+Firmware availability is independent of browser loader/viewer support. The
+bundled esptool-js 0.6.1 cannot flash S31, so the website shows it disabled with
+an explanation. The artifact still supports command-line flashing: from the
+artifact root use the command in `<profile>/flash_command.txt`, replacing
+`PORT`. S31 requires `--no-stub`. C61 is not currently a buildable profile.
+
+The website and firmware workflows produce artifacts without publishing to a
+server. A later deployment job only needs to copy static website files and the
+complete firmware folder; it needs no website build step.

@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define WIFI_TX_RX_REPORT_MAGIC "WPK1"
+#define WIFI_RX_REPORT_MAGIC "WPK1"
 
 typedef struct __attribute__((packed)) {
     char magic[4];
@@ -32,14 +32,10 @@ typedef struct {
     uint32_t bw_mhz;
     uint32_t second_chan;
     uint32_t stream_packets;
-    uint32_t dummy_tx_enable;
-    uint32_t dummy_tx_interval_ms;
-} wifi_tx_rx_config_t;
+} wifi_rx_config_t;
 
-typedef bool (*wifi_tx_rx_report_cb_t)(const wifi_packet_report_t *report);
+typedef bool (*wifi_rx_report_cb_t)(const wifi_packet_report_t *report);
 
-void wifi_tx_rx_init(wifi_tx_rx_report_cb_t report_cb);
-void wifi_tx_rx_apply_config(const wifi_tx_rx_config_t *config);
-void wifi_tx_rx_set_stream_armed(bool armed);
-bool wifi_tx_rx_pause_for_replay(void);
-void wifi_tx_rx_resume_after_replay(bool was_active);
+void wifi_rx_init(wifi_rx_report_cb_t report_cb);
+void wifi_rx_apply_config(const wifi_rx_config_t *config);
+void wifi_rx_set_stream_armed(bool armed);

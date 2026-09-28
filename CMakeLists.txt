@@ -9,10 +9,9 @@ if(IDF_TARGET STREQUAL "esp32c5" OR IDF_TARGET STREQUAL "esp32s3")
     return()
 endif()
 
-# All registry components used by this project are checked into
-# managed_components and listed below. Keep normal builds deterministic and
-# offline; developers can still opt into the registry by exporting
-# IDF_COMPONENT_MANAGER=1 before configuring a fresh build directory.
+# Registry components are downloaded into ignored managed_components/.
+# CI enables the component manager explicitly; local offline builds can reuse
+# dependencies already downloaded for their SDK and target.
 if(NOT DEFINED ENV{IDF_COMPONENT_MANAGER})
     set(ENV{IDF_COMPONENT_MANAGER} "0")
 endif()

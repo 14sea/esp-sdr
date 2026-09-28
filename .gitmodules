@@ -1,8 +1,8 @@
 [submodule "components/esp-open-phy-lib"]
 	path = components/esp-open-phy-lib
-	url = git@github.com:ESPARGOS/esp-open-phy-lib.git
+	url = https://github.com/ESPARGOS/esp-open-phy-lib.git
 	branch = main
 [submodule "components/esp32c61-phy-regs"]
 	path = components/esp32c61-phy-regs
-	url = git@github.com:ESPARGOS/esp32c61-phy-regs.git
+	url = https://github.com/ESPARGOS/esp32c61-phy-regs.git
 	branch = main

@@ -18,7 +18,7 @@
 
 /* (Re-)arm the servo for the forced gain of `config` (manual: from the
  * pristine gain-table snapshot entry; expert: from the config's raw words).
- * Disarms in AGC and loopback modes. Call after every gain / frequency /
+ * Disarms in AGC mode. Call after every gain / frequency /
  * engine change. */
 void dcoc_arm(const modem_config_t *config);
 void dcoc_disarm(void);

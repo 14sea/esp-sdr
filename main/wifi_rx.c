@@ -1,4 +1,4 @@
-#include "wifi_tx_rx.h"
+#include "wifi_rx.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -16,13 +16,10 @@
 
 #define HZ_PER_MHZ 1000000u
 #define WIFI_REPORT_MIN_INTERVAL_US 5000u
-#define WIFI_DUMMY_TX_TASK_STACK_BYTES 1536u
-#define WIFI_DUMMY_TX_INTERVAL_MAX_WAIT_MS 100u
 
-static TaskHandle_t s_dummy_tx_task_handle;
 static portMUX_TYPE s_config_mux = portMUX_INITIALIZER_UNLOCKED;
-static wifi_tx_rx_report_cb_t s_report_cb;
-static wifi_tx_rx_config_t s_config;
+static wifi_rx_report_cb_t s_report_cb;
+static wifi_rx_config_t s_config;
 static volatile bool s_stream_armed;
 static volatile uint32_t s_report_sequence = 1;
 static volatile uint32_t s_dropped_reports;
@@ -30,11 +27,6 @@ static volatile uint32_t s_last_report_us;
 static bool s_wifi_started;
 static bool s_promiscuous_started;
 static bool s_promiscuous_reports_enabled;
-#if CONFIG_IDF_TARGET_ESP32S31
-static TaskHandle_t s_replay_wifi_task;
-static uint32_t s_replay_intr_map[8];
-static bool s_replay_wifi_isolated;
-#endif
 
 static uint32_t clamp_u32(uint32_t value, uint32_t min, uint32_t max)
 {
@@ -45,15 +37,6 @@ static uint32_t clamp_u32(uint32_t value, uint32_t min, uint32_t max)
         return max;
     }
     return value;
-}
-
-static wifi_tx_rx_config_t config_snapshot(void)
-{
-    wifi_tx_rx_config_t config;
-    taskENTER_CRITICAL(&s_config_mux);
-    config = s_config;
-    taskEXIT_CRITICAL(&s_config_mux);
-    return config;
 }
 
 static uint8_t wifi_channel_from_freq_hz(uint32_t freq_hz)
@@ -68,7 +51,7 @@ static uint8_t wifi_channel_from_freq_hz(uint32_t freq_hz)
     return 1u;
 }
 
-static wifi_second_chan_t wifi_second_channel_from_config(const wifi_tx_rx_config_t *config)
+static wifi_second_chan_t wifi_second_channel_from_config(const wifi_rx_config_t *config)
 {
     if (config->bw_mhz < 40u) {
         return WIFI_SECOND_CHAN_NONE;
@@ -79,7 +62,7 @@ static wifi_second_chan_t wifi_second_channel_from_config(const wifi_tx_rx_confi
     return WIFI_SECOND_CHAN_ABOVE;
 }
 
-static void update_wifi_channel(const wifi_tx_rx_config_t *config)
+static void update_wifi_channel(const wifi_rx_config_t *config)
 {
     if (s_wifi_started) {
         wifi_second_chan_t second = wifi_second_channel_from_config(config);
@@ -167,52 +150,6 @@ static void wifi_promiscuous_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type)
     }
 }
 
-static void send_dummy_wifi_packet(void)
-{
-    uint8_t packet[] = {
-        0xd0, 0x00,
-        0x00, 0x00,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0x02, 0x00, 0x00, 0x00, 0x00, 0x01,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0x00, 0x00,
-        0x7f,
-        0x18, 0xfe, 0x34,
-        0x44, 0x49, 0x51, 0x00,
-    };
-    uint8_t mac[6];
-    if (esp_wifi_get_mac(WIFI_IF_STA, mac) == ESP_OK) {
-        memcpy(&packet[10], mac, sizeof(mac));
-    }
-    (void)esp_wifi_80211_tx(WIFI_IF_STA, packet, sizeof(packet), true);
-}
-
-static void wifi_dummy_tx_task(void *arg)
-{
-    (void)arg;
-    int64_t next_tx_us = 0;
-    while (true) {
-        wifi_tx_rx_config_t config = config_snapshot();
-        if (config.dummy_tx_enable != 0u && s_wifi_started) {
-            int64_t now_us = esp_timer_get_time();
-            if (next_tx_us == 0 || now_us >= next_tx_us) {
-                send_dummy_wifi_packet();
-                next_tx_us = now_us + ((int64_t)config.dummy_tx_interval_ms * 1000);
-            }
-            uint32_t delay_ms = 1u;
-            if (next_tx_us > now_us) {
-                uint64_t wait_ms = (uint64_t)(next_tx_us - now_us + 999) / 1000u;
-                delay_ms = clamp_u32((uint32_t)wait_ms, 1u,
-                                     WIFI_DUMMY_TX_INTERVAL_MAX_WAIT_MS);
-            }
-            vTaskDelay(pdMS_TO_TICKS(delay_ms));
-        } else {
-            next_tx_us = 0;
-            vTaskDelay(pdMS_TO_TICKS(100u));
-        }
-    }
-}
-
 static void update_promiscuous_state(void)
 {
     bool want_reports = s_config.stream_packets != 0u;
@@ -249,62 +186,7 @@ static void update_promiscuous_state(void)
     }
 }
 
-bool wifi_tx_rx_pause_for_replay(void)
-{
-    const bool was_active = s_wifi_started && s_promiscuous_started;
-#if CONFIG_IDF_TARGET_ESP32S31
-    if (s_wifi_started && !s_replay_wifi_isolated) {
-        /* Do not call any Wi-Fi control API here: both sniffer-disable and
-         * driver-stop teardown race the independent Ethernet/tcpip tasks
-         * through scarce internal heap on this S31 build. Preserve all Wi-Fi
-         * allocations and isolate only its already-running execution paths. */
-        s_replay_wifi_task = xTaskGetHandle("wifi");
-        if (s_replay_wifi_task != NULL) {
-            vTaskSuspend(s_replay_wifi_task);
-        }
-        const uint32_t registers[8] = {
-            INTERRUPT_CORE0_MODEM_WIFI_MAC_INTR_MAP_REG,
-            INTERRUPT_CORE0_MODEM_WIFI_MAC_NMI_INTR_MAP_REG,
-            INTERRUPT_CORE0_MODEM_WIFI_PWR_INTR_MAP_REG,
-            INTERRUPT_CORE0_MODEM_WIFI_BB_INTR_MAP_REG,
-            INTERRUPT_CORE1_MODEM_WIFI_MAC_INTR_MAP_REG,
-            INTERRUPT_CORE1_MODEM_WIFI_MAC_NMI_INTR_MAP_REG,
-            INTERRUPT_CORE1_MODEM_WIFI_PWR_INTR_MAP_REG,
-            INTERRUPT_CORE1_MODEM_WIFI_BB_INTR_MAP_REG,
-        };
-        for (size_t i = 0; i < 8; ++i) {
-            s_replay_intr_map[i] = REG_READ(registers[i]);
-            /* Zero is the S31 interrupt matrix's disconnected target.  Do
-             * not use a generic CPU interrupt number here: that routes a
-             * live modem source into an unrelated handler and eventually
-             * faults core 0 during a long replay. */
-            REG_WRITE(registers[i], ETS_INVALID_INUM);
-        }
-        s_replay_wifi_isolated = true;
-    }
-#endif
-    return was_active;
-}
-
-void wifi_tx_rx_resume_after_replay(bool was_active)
-{
-#if CONFIG_IDF_TARGET_ESP32S31
-    /* The vendor Wi-Fi task cannot safely resume after the direct replay path
-     * has repurposed its modem state: a pending PHY/MAC callback enters ROM
-     * with stale driver context and faults shortly after a longer burst.  IQ
-     * RX and direct TX use the modem registers directly, so keep that task and
-     * its modem interrupt sources quiesced once arbitrary replay is entered.
-     * Wi-Fi packet metadata is consequently unavailable after the first TX,
-     * but USB, Ethernet, direct IQ RX, retuning, and later TX remain alive. */
-    (void)was_active;
-#else
-    if (was_active) {
-        update_promiscuous_state();
-    }
-#endif
-}
-
-void wifi_tx_rx_init(wifi_tx_rx_report_cb_t report_cb)
+void wifi_rx_init(wifi_rx_report_cb_t report_cb)
 {
     s_report_cb = report_cb;
     if (!s_wifi_started) {
@@ -327,18 +209,15 @@ void wifi_tx_rx_init(wifi_tx_rx_report_cb_t report_cb)
         update_wifi_channel(&s_config);
     }
     update_promiscuous_state();
-    if (s_dummy_tx_task_handle == NULL) {
-        xTaskCreate(wifi_dummy_tx_task, "wifi_dummy_tx", WIFI_DUMMY_TX_TASK_STACK_BYTES,
-                    NULL, 8, &s_dummy_tx_task_handle);
-    }
+
 }
 
-void wifi_tx_rx_apply_config(const wifi_tx_rx_config_t *config)
+void wifi_rx_apply_config(const wifi_rx_config_t *config)
 {
     taskENTER_CRITICAL(&s_config_mux);
     s_config = *config;
     taskEXIT_CRITICAL(&s_config_mux);
-    if (config->stream_packets != 0u || config->dummy_tx_enable != 0u) {
+    if (config->stream_packets != 0u) {
         update_wifi_channel(config);
     }
     if (s_wifi_started) {
@@ -346,7 +225,7 @@ void wifi_tx_rx_apply_config(const wifi_tx_rx_config_t *config)
     }
 }
 
-void wifi_tx_rx_set_stream_armed(bool armed)
+void wifi_rx_set_stream_armed(bool armed)
 {
     s_stream_armed = armed;
 }

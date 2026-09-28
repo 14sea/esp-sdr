@@ -30,3 +30,6 @@ venv/
 .DS_Store
 Thumbs.db
 *.log
+
+# CI SDK checkout
+/.esp-idf/

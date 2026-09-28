@@ -129,15 +129,3 @@ bool IRAM_ATTR s3_serial_send(const void *data, size_t size) {
     }
     return true;
 }
-
-bool s3_serial_receive(void *data, size_t size) {
-    uint8_t *p = data;
-    int64_t deadline = transfer_deadline(size);
-    while (size && esp_timer_get_time() < deadline) {
-        int count = read_port(active_port, p, size > 256 ? 256 : size);
-        if (count < 0) return false;
-        if (count) { p += count; size -= count; }
-        else if (active_port == S3_SERIAL_UART) vTaskDelay(1);
-    }
-    return size == 0;
-}

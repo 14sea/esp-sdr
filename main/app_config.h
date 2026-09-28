@@ -26,22 +26,8 @@
 #define RX_GAIN_MIN_DB 0u
 #define RX_GAIN_STEP_DB 1u
 
-/* Experimental replay TX RF gain. This is the six-bit RFTX2 PBUS gain code,
- * not yet an absolute dBm calibration. Start conservatively: the vendor TX
- * calibration route uses code 23 and can trip the development board's
- * brownout detector at replay start on a marginal supply. */
-#define TX_GAIN_MIN 0u
-#define TX_GAIN_MAX 63u
-#define TX_GAIN_DEFAULT 8u
-/* One replay descriptor addresses at most 16,383 IQ10 words.  A host upload
- * may prebuffer 64 ordered descriptors in PSRAM for a finite TX batch. */
-#define TX_REPLAY_SEGMENT_WORDS_MAX 16383u
-#define TX_BATCH_SEGMENTS_MAX 64u
-#define TX_BATCH_WORDS_MAX \
-    (TX_REPLAY_SEGMENT_WORDS_MAX * TX_BATCH_SEGMENTS_MAX)
-
 enum {
-    GAIN_MODE_AUTO = 0u,
+    GAIN_MODE_HARDWARE = 0u,
     GAIN_MODE_MANUAL = 1u,
     GAIN_MODE_EXPERT = 2u,
 };
@@ -70,7 +56,8 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
     uint32_t gain_mode;
     uint32_t rx_gain;
-    uint32_t tx_gain;
+    /* Reserved words retain the existing packed RX configuration offsets. */
+    uint32_t reserved_gain;
     uint32_t expert_gain_word0;
     uint32_t expert_gain_word1;
     uint32_t expert_gain_word2;
@@ -80,18 +67,6 @@ typedef struct __attribute__((packed)) {
     uint32_t bw_mhz;
     uint32_t second_chan;
 } bandwidth_config_t;
-
-typedef struct __attribute__((packed)) {
-    uint32_t loopback;
-    uint32_t loopback_tx_gain;
-    uint32_t loopback_rx_gain;
-    uint32_t loopback_bb_gain;
-} loopback_config_t;
-
-typedef struct __attribute__((packed)) {
-    uint32_t tx_tone_enable;
-    int32_t tx_tone0_step;
-} tx_config_t;
 
 typedef struct __attribute__((packed)) {
     uint32_t adc_decimation;
@@ -113,11 +88,6 @@ typedef struct __attribute__((packed)) {
 } rx_filter_config_t;
 
 typedef struct __attribute__((packed)) {
-    uint32_t wifi_dummy_tx_enable;
-    uint32_t wifi_dummy_tx_interval_ms;
-} wifi_tx_config_t;
-
-typedef struct __attribute__((packed)) {
     /* Automatic DC correction request. Characterized dump paths use the
      * firmware analog servo; production PARLIO leaves the PHY calibration
      * untouched and lets Soapy apply safe host-side tracking. */
@@ -129,11 +99,11 @@ typedef struct __attribute__((packed)) {
     radio_config_t radio;
     gain_config_t gain;
     bandwidth_config_t bandwidth;
-    loopback_config_t loopback;
-    tx_config_t tx;
+    uint32_t reserved_path[4];
+    uint32_t reserved_signal[2];
     iq_engine_config_t iq_engine;
     trigger_config_t trigger;
     rx_filter_config_t rx_filter;
-    wifi_tx_config_t wifi_tx;
+    uint32_t reserved_wifi[2];
     dc_offset_config_t dc_offset;
 } capture_config_t;

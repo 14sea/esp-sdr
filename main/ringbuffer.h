@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #include "app_config.h"
-#include "wifi_tx_rx.h"
+#include "wifi_rx.h"
 
 #define STREAM_FRAME_MAGIC_IQ "IQC1"
 /* Compressed variant: same 52-byte header, interleaved int8 I/Q pairs
@@ -18,24 +18,14 @@
  * the host forms the analytic signal and decimates by two. */
 #define STREAM_FRAME_MAGIC_REAL8 "IQR8"
 #define STREAM_FRAME_MAGIC_CONFIG "CFG1"
-/* IQ header flags. Low four bits retain the modem AGC state. The remaining
- * diagnostic fields describe the firmware software AGC at the instant the
- * frame was prepared. Counters saturate on the wire; full values remain
- * available through /status. When timestamp-valid is set, chunk_counter
- * carries the low 32 bits of a monotonic microsecond timestamp. Hosts unwrap
- * it across the roughly 71-minute rollover. */
+/* IQ header flags: low four bits retain hardware AGC state. Bit 30 is
+ * reserved and remains zero. DCOC diagnostics and timestamp bits keep their
+ * existing wire layout; chunk_counter carries timestamp_us32 when enabled. */
 #define STREAM_FRAME_FLAG_TIMESTAMP_US32 (1u << 31)
-#define STREAM_FRAME_FLAG_SOFTWARE_AGC_ACTIVE (1u << 30)
 #define STREAM_FRAME_FLAG_DCOC_ACTIVE (1u << 29)
 #define STREAM_FRAME_DCOC_ERROR_I_S 4u
 #define STREAM_FRAME_DCOC_ERROR_Q_S 16u
 #define STREAM_FRAME_DCOC_ERROR_M 0xfffu
-#define STREAM_FRAME_AGC_ROBUST_PEAK_S 20u
-#define STREAM_FRAME_AGC_ROBUST_PEAK_M \
-    (0x1ffu << STREAM_FRAME_AGC_ROBUST_PEAK_S)
-#define STREAM_FRAME_AGC_GAIN_CHANGES_S 4u
-#define STREAM_FRAME_AGC_GAIN_CHANGES_M \
-    (0xffffu << STREAM_FRAME_AGC_GAIN_CHANGES_S)
 #define STREAM_FRAME_AGC_STATE_MASK 0x0fu
 #define IQ8_FRAME_WIRE_BYTES (52u + 2u * IQ_CHUNK_SAMPLE_WORDS + 4u)
 #define IQ4_FRAME_WIRE_BYTES (52u + IQ_CHUNK_SAMPLE_WORDS + 4u)
@@ -68,8 +58,8 @@ typedef struct __attribute__((packed)) {
     uint32_t uptime_ms;
     uint32_t stage;
     uint32_t rx_gain;
-    uint32_t loopback;
-    uint32_t tx_tone_enable;
+    uint32_t reserved_path;
+    uint32_t reserved_signal;
     uint32_t adc_source_sel;
     uint32_t expert_gain_word0;
     uint32_t expert_gain_word1;
@@ -94,9 +84,6 @@ typedef struct {
     uint32_t center_freq_mhz;
     uint32_t rx_gain;
     uint32_t agc_state;
-    bool software_agc_active;
-    uint32_t agc_robust_peak;
-    uint32_t agc_gain_changes;
     uint32_t dropped_chunks;
     uint32_t bank_timer_late_misses;
     uint32_t bank_timer_write_ptr;

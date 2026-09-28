@@ -5,9 +5,6 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_ESP_SDR_TRANSPORT_ETHERNET=y
 CONFIG_ESP_SDR_TRANSPORT_USB=y
-CONFIG_ESP_SDR_S31_TX_PIE_REFILL=y
-CONFIG_ESP_SDR_S31_TX_DIRECT_DMA_REFILL=y
-# CONFIG_ESP_SDR_S31_TX_PIPELINED_REFILL is not set
 CONFIG_ESP_PHY_ENABLE_CERT_TEST=y
 CONFIG_ESP_PHY_DEBUG=y
 CONFIG_ESP_PHY_DISABLE_PLL_TRACK=y
@@ -19,9 +16,8 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
 CONFIG_FREERTOS_HZ=1000
 CONFIG_ESP_TIMER_SUPPORTS_ISR_DISPATCH_METHOD=y
 # Keep the scheduler API in internal IRAM; avoiding flash/PSRAM XIP stalls is
-# required for native-USB TX throughput. Moving mDNS/HTTP tasks to PSRAM leaves
-# internal heap for the full GMAC RX ring, whose stopped buffers are borrowed
-# as the native-USB realtime DIRAM staging ring.
+# useful for sustained sample delivery. Keep mDNS/HTTP tasks in PSRAM to
+# leave internal heap available for DMA and the Ethernet driver.
 CONFIG_FREERTOS_IN_IRAM=y
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y

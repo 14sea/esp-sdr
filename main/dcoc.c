@@ -100,10 +100,7 @@ void dcoc_arm(const modem_config_t *config)
         s_diag = 0u;
         return;
     }
-    if (config->loopback != 0u) {
-        s_diag = 0u;
-        return;   /* loopback has its own gain path and DCO cal */
-    }
+
     if (config->gain_mode == GAIN_MODE_MANUAL) {
         gaintable_entry_t entry;
         if (config->rx_gain >= GAINTABLE_MAX_ENTRIES ||

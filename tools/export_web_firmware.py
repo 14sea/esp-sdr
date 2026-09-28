@@ -12,7 +12,7 @@ def export(build, output, board, label, version, allow_larger_flash=False):
         raise ValueError('Board ID must contain only letters, numbers, dots, underscores or hyphens')
     cache = (build / 'CMakeCache.txt').read_text()
     for line in cache.splitlines():
-        if re.match(r'(SAMPLE_RATE_PROBE|FILTER_REGISTER_PROBE|S3_RF_PROBE|C5_TUNE_PROBE|C5_REPLAY_PROBE):', line):
+        if re.match(r'(SAMPLE_RATE_PROBE|FILTER_REGISTER_PROBE|S3_RF_PROBE|C5_TUNE_PROBE):', line):
             if line.rsplit('=', 1)[-1].upper() not in ('OFF', 'FALSE', '0', 'NO', ''):
                 raise ValueError('Refusing to export diagnostic probe firmware')
     config = json.loads((build / 'config/sdkconfig.json').read_text())
@@ -22,7 +22,9 @@ def export(build, output, board, label, version, allow_larger_flash=False):
         raise ValueError('Build target differs from flashing target')
     if not re.fullmatch(r'esp32[a-z0-9]*', target):
         raise ValueError('Expected an ESP32 target')
-    settings = args['flash_settings']
+    settings = dict(args['flash_settings'])
+    if settings['flash_size'] == 'detect':
+        settings['flash_size'] = config.get('ESPTOOLPY_FLASHSIZE', '')
     size = re.fullmatch(r'(\d+)MB', settings['flash_size'])
     if not size:
         raise ValueError('Build must specify a concrete flash size in MB')
@@ -48,7 +50,7 @@ def export(build, output, board, label, version, allow_larger_flash=False):
     manifest = dict(schema_version=1, version=version, variants={board: dict(
         revision=board, label=label, target=target, chip=chip, version=version,
         flash_size=settings['flash_size'], flash_size_policy='minimum' if allow_larger_flash else 'exact',
-        flash_settings=settings, parts=parts)})
+        flash_settings=settings, esptool_args=args['extra_esptool_args'], parts=parts)})
     # Each matrix job writes a separate artifact directory; never merge in place.
     output.mkdir(parents=True, exist_ok=False)
     images = output / board
@@ -56,6 +58,14 @@ def export(build, output, board, label, version, allow_larger_flash=False):
     for name, data in payloads:
         (images / name).write_bytes(data)
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    flash_args = [f"--flash-mode {settings['flash_mode']}",
+                  f"--flash-freq {settings['flash_freq']}",
+                  f"--flash-size {settings['flash_size']}"]
+    flash_args += [f"{part['offset']:#x} {board}/{part['name']}" for part in parts]
+    (output / 'flash_args').write_text('\n'.join(flash_args) + '\n')
+    stub = '' if args['extra_esptool_args'].get('stub', True) else ' --no-stub'
+    (output / 'flash_command.txt').write_text(
+        f'python -m esptool --chip {target}{stub} --port PORT write-flash @flash_args\n')
     return output / 'manifest.json'
 
 

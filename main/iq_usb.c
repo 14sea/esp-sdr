@@ -42,12 +42,10 @@
 #define IQ_USB_EP_CTRL_OUT 0x01u
 #define IQ_USB_EP_CTRL_IN 0x81u
 #define IQ_USB_EP_STREAM_IN 0x82u
-#define IQ_USB_EP_TX_OUT 0x02u
 #define IQ_USB_STREAM_EP_NUM 2u
 /* Keep OUT transactions packet-aligned but short. 4 KiB transactions bound
  * DWC2's PSRAM-fabric occupation while still amortizing TinyUSB scheduling
  * over eight high-speed packets. */
-#define IQ_USB_TX_TRANSFER_BYTES (32u * 1024u)
 
 /* Three slots in PSRAM mode (fill one while one is in flight and one is
  * parked); two in the smaller internal-memory fallback. */
@@ -157,7 +155,6 @@ static uint8_t s_rhport;
 static volatile uint8_t s_ep_ctrl_out;
 static volatile uint8_t s_ep_ctrl_in;
 static volatile uint8_t s_ep_stream_in;
-static volatile uint8_t s_ep_tx_out;
 static volatile uint32_t s_usb_frames;
 static volatile uint32_t s_usb_send_errors;
 /* IQ_USB_FORMAT_*: selected per stream via the stream-start payload.
@@ -177,30 +174,6 @@ static volatile uint32_t s_diag_completions;
 static volatile uint32_t s_diag_completion_bytes;
 static volatile uint32_t s_diag_max_completion_cycles;
 static volatile uint32_t s_slot_submit_cycle[IQ_USB_SLOT_MAX];
-
-/* Host-to-radio upload. DWC2 writes directly into the final aligned PSRAM
- * allocation in endpoint-sized pieces; commit then transfers ownership to
- * the replay engine without a second full-waveform copy. TinyUSB serializes
- * endpoint callbacks in its device task, so control and TX completion state
- * need no additional mutex. */
-static uint32_t *s_tx_upload;
-static uint32_t s_tx_word_count;
-static uint32_t s_tx_received_bytes;
-static uint32_t s_tx_armed_bytes;
-static uint16_t s_tx_commit_flags;
-static uint64_t s_tx_start_time_ns;
-static volatile uint32_t s_usb_tx_uploads;
-static volatile uint32_t s_usb_tx_bytes;
-static volatile uint32_t s_usb_tx_errors;
-static volatile uint32_t s_usb_tx_backpressure_retries;
-static volatile uint32_t s_usb_tx_commit_rejections;
-#define IQ_USB_TX_POOL_COUNT 4u
-static uint32_t *s_tx_pool[IQ_USB_TX_POOL_COUNT];
-static volatile uint32_t s_tx_pool_busy[IQ_USB_TX_POOL_COUNT];
-static bool s_tx_network_suspended;
-static size_t s_tx_pool_capacity;
-static uint32_t s_tx_last_pool_wait_ms;
-static int64_t s_tx_arm_started_us;
 
 /* ---------------- Descriptors ------------------------------------------- */
 static const tusb_desc_device_t s_device_desc = {
@@ -224,13 +197,12 @@ static const tusb_desc_device_t s_device_desc = {
   7u, TUSB_DESC_ENDPOINT, (addr), TUSB_XFER_BULK, U16_TO_U8S_LE(mps), 0u
 
 #define IQ_USB_CONFIG_DESC(mps)                                                \
-  TUD_CONFIG_DESCRIPTOR(1, 1, 0, TUD_CONFIG_DESC_LEN + 9u + 4u * 7u, 0, 500), \
-      /* Vendor interface: control pair, RX stream IN, TX stream OUT. */       \
-      9u, TUSB_DESC_INTERFACE, 0u, 0u, 4u, TUSB_CLASS_VENDOR_SPECIFIC, 0u,     \
+  TUD_CONFIG_DESCRIPTOR(1, 1, 0, TUD_CONFIG_DESC_LEN + 9u + 3u * 7u, 0, 500), \
+      /* Vendor interface: control pair and RX stream IN. */       \
+      9u, TUSB_DESC_INTERFACE, 0u, 0u, 3u, TUSB_CLASS_VENDOR_SPECIFIC, 0u,     \
       0u, 4u, IQ_USB_EP_DESC(IQ_USB_EP_CTRL_OUT, mps),                         \
       IQ_USB_EP_DESC(IQ_USB_EP_CTRL_IN, mps),                                  \
-      IQ_USB_EP_DESC(IQ_USB_EP_STREAM_IN, mps),                                \
-      IQ_USB_EP_DESC(IQ_USB_EP_TX_OUT, mps)
+      IQ_USB_EP_DESC(IQ_USB_EP_STREAM_IN, mps)
 
 static const uint8_t s_fs_config_desc[] = {IQ_USB_CONFIG_DESC(64u)};
 static const uint8_t s_hs_config_desc[] = {IQ_USB_CONFIG_DESC(512u)};
@@ -248,279 +220,6 @@ static const char *s_string_desc[] = {
 static void ctrl_prepare_request_read(void) {
   (void)usbd_edpt_xfer(s_rhport, IQ_USB_EP_CTRL_OUT, s_ctrl_request,
                        IQ_USB_CTRL_REQUEST_BYTES, false);
-}
-
-bool iq_usb_tx_recycle(uint32_t *buffer) {
-  if (buffer == NULL) {
-    return false;
-  }
-  for (uint32_t i = 0u; i < IQ_USB_TX_POOL_COUNT; ++i) {
-    if (s_tx_pool[i] == buffer) {
-      /* Pool pointers are immutable from first TX arm until RF teardown.
-       * Releasing ownership must not spin on the RX/endpoint mux: DWC2 can
-       * hold that lock long enough to perturb the realtime core. */
-      __atomic_store_n(&s_tx_pool_busy[i], 0u, __ATOMIC_RELEASE);
-      return true;
-    }
-  }
-  return false;
-}
-
-void iq_usb_tx_pool_trim(void) {
-  uint32_t *retired[IQ_USB_TX_POOL_COUNT] = {0};
-  taskENTER_CRITICAL(&s_usb_mux);
-  bool all_free = true;
-  for (uint32_t i = 0u; i < IQ_USB_TX_POOL_COUNT; ++i) {
-    all_free = all_free &&
-               __atomic_load_n(&s_tx_pool_busy[i], __ATOMIC_ACQUIRE) == 0u;
-  }
-  if (all_free) {
-    for (uint32_t i = 0u; i < IQ_USB_TX_POOL_COUNT; ++i) {
-      retired[i] = s_tx_pool[i];
-      s_tx_pool[i] = NULL;
-      __atomic_store_n(&s_tx_pool_busy[i], 0u, __ATOMIC_RELAXED);
-    }
-    s_tx_pool_capacity = 0u;
-  }
-  taskEXIT_CRITICAL(&s_usb_mux);
-  for (uint32_t i = 0u; i < IQ_USB_TX_POOL_COUNT; ++i) {
-    heap_caps_free(retired[i]);
-  }
-}
-
-static bool tx_pool_prepare(size_t allocation_bytes) {
-  if (s_tx_pool_capacity >= allocation_bytes) {
-    return true;
-  }
-  if (s_tx_pool_capacity != 0u) {
-    return false;
-  }
-  uint32_t *prepared[IQ_USB_TX_POOL_COUNT] = {0};
-  for (uint32_t i = 0u; i < IQ_USB_TX_POOL_COUNT; ++i) {
-    prepared[i] = heap_caps_aligned_alloc(
-        64u, allocation_bytes,
-        MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
-    if (prepared[i] == NULL) {
-      for (uint32_t j = 0u; j < IQ_USB_TX_POOL_COUNT; ++j) {
-        heap_caps_free(prepared[j]);
-      }
-      return false;
-    }
-  }
-  taskENTER_CRITICAL(&s_usb_mux);
-  for (uint32_t i = 0u; i < IQ_USB_TX_POOL_COUNT; ++i) {
-    s_tx_pool[i] = prepared[i];
-    __atomic_store_n(&s_tx_pool_busy[i], 0u, __ATOMIC_RELAXED);
-  }
-  s_tx_pool_capacity = allocation_bytes;
-  taskEXIT_CRITICAL(&s_usb_mux);
-  return true;
-}
-
-static uint32_t *tx_pool_claim(size_t allocation_bytes) {
-  if (s_tx_pool_capacity >= allocation_bytes) {
-    for (uint32_t i = 0u; i < IQ_USB_TX_POOL_COUNT; ++i) {
-      uint32_t expected = 0u;
-      if (s_tx_pool[i] != NULL &&
-          __atomic_compare_exchange_n(&s_tx_pool_busy[i], &expected, 1u,
-                                      false, __ATOMIC_ACQ_REL,
-                                      __ATOMIC_ACQUIRE)) {
-        return s_tx_pool[i];
-      }
-    }
-  }
-  return NULL;
-}
-
-static void tx_upload_forget(bool free_buffer) {
-  if (free_buffer) {
-    if (!iq_usb_tx_recycle(s_tx_upload)) {
-      heap_caps_free(s_tx_upload);
-    }
-  }
-  s_tx_upload = NULL;
-  s_tx_word_count = 0u;
-  s_tx_received_bytes = 0u;
-  s_tx_armed_bytes = 0u;
-  s_tx_commit_flags = 0u;
-  s_tx_start_time_ns = 0u;
-}
-
-static uint32_t tx_upload_wire_bytes(uint32_t words, uint16_t flags) {
-  if ((flags & IQ_TX_USB_FLAG_PACKED20) != 0u) {
-    return (words * 5u + 1u) / 2u;
-  }
-  return words * sizeof(uint32_t);
-}
-
-static bool tx_upload_arm_next(void) {
-  if (s_tx_upload == NULL || s_ep_tx_out == 0u) {
-    return false;
-  }
-  const uint32_t total_bytes =
-      tx_upload_wire_bytes(s_tx_word_count, s_tx_commit_flags);
-  if (s_tx_received_bytes >= total_bytes) {
-    s_tx_armed_bytes = 0u;
-    return true;
-  }
-  uint32_t bytes = total_bytes - s_tx_received_bytes;
-  if (bytes > IQ_USB_TX_TRANSFER_BYTES) {
-    bytes = IQ_USB_TX_TRANSFER_BYTES;
-  }
-  s_tx_armed_bytes = bytes;
-  return usbd_edpt_xfer(
-      s_rhport, IQ_USB_EP_TX_OUT,
-      (uint8_t *)s_tx_upload + s_tx_received_bytes, (uint16_t)bytes, false);
-}
-
-static const char *tx_upload_begin(const uint8_t *payload,
-                                   uint32_t payload_bytes) {
-  if (payload_bytes != 8u && payload_bytes != sizeof(iq_usb_tx_arm_t)) {
-    return "USB TX arm payload must be 8 or 16 bytes";
-  }
-  if (s_tx_upload != NULL ||
-      (s_ep_tx_out != 0u && usbd_edpt_busy(s_rhport, IQ_USB_EP_TX_OUT))) {
-    return "USB TX upload already active";
-  }
-  iq_usb_tx_arm_t arm = {0};
-  memcpy(&arm, payload, payload_bytes);
-  const uint16_t allowed =
-      IQ_TX_UDP_FLAG_AUTOSTART | IQ_TX_UDP_RATE_CODE_M |
-      IQ_TX_UDP_FLAG_MORE | IQ_TX_UDP_FLAG_CONTINUE |
-      IQ_TX_USB_FLAG_PACKED20;
-  const uint32_t rate_code =
-      (arm.commit_flags & IQ_TX_UDP_RATE_CODE_M) >> IQ_TX_UDP_RATE_CODE_S;
-  const bool rate_valid = rate_code <= 3u ||
-                          (rate_code >= 7u && rate_code <= 15u);
-  if (arm.word_count == 0u || arm.word_count > TX_BATCH_WORDS_MAX ||
-      arm.reserved != 0u || (arm.commit_flags & ~allowed) != 0u ||
-      ((arm.commit_flags & IQ_TX_UDP_FLAG_AUTOSTART) != 0u && !rate_valid) ||
-      ((arm.commit_flags & IQ_TX_USB_FLAG_PACKED20) != 0u &&
-       (((arm.commit_flags & IQ_TX_UDP_FLAG_AUTOSTART) == 0u) ||
-        (rate_code != 14u && rate_code != 15u))) ||
-      ((arm.commit_flags & IQ_TX_UDP_FLAG_AUTOSTART) == 0u &&
-       ((arm.commit_flags & (IQ_TX_UDP_RATE_CODE_M |
-                             IQ_TX_UDP_FLAG_MORE)) != 0u ||
-        arm.start_time_ns != 0u))) {
-    return "invalid USB TX arm parameters";
-  }
-  if ((arm.commit_flags & IQ_TX_UDP_FLAG_AUTOSTART) != 0u &&
-      (arm.commit_flags & IQ_TX_UDP_FLAG_CONTINUE) == 0u &&
-      !s_tx_network_suspended) {
-    iq_network_suspend_for_usb_tx();
-    s_tx_network_suspended = true;
-  }
-  const size_t upload_bytes =
-      tx_upload_wire_bytes(arm.word_count, arm.commit_flags);
-  const size_t allocation_bytes = (upload_bytes + 63u) & ~(size_t)63u;
-  const bool use_pool = tx_pool_prepare(allocation_bytes);
-  s_tx_arm_started_us = esp_timer_get_time();
-  uint32_t pool_waits = 0u;
-  for (uint32_t attempt = 0u; attempt < 300u && s_tx_upload == NULL;
-       ++attempt) {
-    if (s_callbacks.reclaim_tx_waveforms != NULL) {
-      s_callbacks.reclaim_tx_waveforms();
-    }
-    s_tx_upload = use_pool
-                      ? tx_pool_claim(allocation_bytes)
-                      : heap_caps_aligned_alloc(
-                            64u, allocation_bytes,
-                            MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA |
-                                MALLOC_CAP_8BIT);
-    if (s_tx_upload == NULL) {
-      ++pool_waits;
-      vTaskDelay(1);
-    }
-  }
-  s_tx_last_pool_wait_ms = pool_waits;
-  if (s_tx_upload == NULL) {
-    if (s_tx_network_suspended) {
-      iq_network_resume_after_usb_tx();
-      s_tx_network_suspended = false;
-    }
-    return "USB TX allocation failed";
-  }
-  s_tx_word_count = arm.word_count;
-  s_tx_received_bytes = 0u;
-  s_tx_commit_flags = arm.commit_flags;
-  s_tx_start_time_ns = arm.start_time_ns;
-  if (!tx_upload_arm_next()) {
-    tx_upload_forget(true);
-    if (s_tx_network_suspended) {
-      iq_network_resume_after_usb_tx();
-      s_tx_network_suspended = false;
-    }
-    return "could not arm USB TX endpoint";
-  }
-  return NULL;
-}
-
-static const char *tx_upload_commit(void) {
-  if (s_tx_upload == NULL) {
-    return "no USB TX upload is active";
-  }
-  const uint32_t total_bytes =
-      tx_upload_wire_bytes(s_tx_word_count, s_tx_commit_flags);
-  const bool final_batch =
-      (s_tx_commit_flags & IQ_TX_UDP_FLAG_MORE) == 0u;
-  if (s_tx_received_bytes != total_bytes || s_tx_armed_bytes != 0u ||
-      usbd_edpt_busy(s_rhport, IQ_USB_EP_TX_OUT)) {
-    return "USB TX upload is incomplete";
-  }
-  bool adopted = false;
-  bool stored = false;
-  if (s_callbacks.take_tx_waveform != NULL) {
-    const iq_tx_waveform_result_t result = s_callbacks.take_tx_waveform(
-        s_tx_upload, s_tx_word_count, s_tx_commit_flags, s_tx_start_time_ns);
-    if (result == IQ_TX_WAVEFORM_RETRY) {
-      ++s_usb_tx_backpressure_retries;
-      return "USB TX replay engine is busy";
-    }
-    adopted = result == IQ_TX_WAVEFORM_ADOPTED;
-    stored = adopted;
-  } else if (s_callbacks.set_tx_waveform != NULL) {
-    stored = s_callbacks.set_tx_waveform(s_tx_upload, s_tx_word_count);
-  }
-  if (!stored) {
-    ++s_usb_tx_commit_rejections;
-    ESP_LOGW(TAG,
-             "USB TX adopt failed: pool_wait_ms=%" PRIu32
-             " arm_elapsed_us=%" PRIi64,
-             s_tx_last_pool_wait_ms,
-             esp_timer_get_time() - s_tx_arm_started_us);
-    if (s_tx_network_suspended) {
-      iq_network_resume_after_usb_tx();
-      s_tx_network_suspended = false;
-    }
-    return "USB TX replay engine rejected upload";
-  }
-  s_usb_tx_bytes += total_bytes;
-  ++s_usb_tx_uploads;
-  tx_upload_forget(!adopted);
-  if (final_batch && s_tx_network_suspended) {
-    iq_network_resume_after_usb_tx();
-    s_tx_network_suspended = false;
-  }
-  return NULL;
-}
-
-static const char *tx_upload_abort(void) {
-  if (s_ep_tx_out != 0u) {
-    /* DWC2 has no single-endpoint close implementation in TinyUSB.  A
-     * stall/clear cycle cancels the outstanding OUT DMA and resets DATA0. */
-    usbd_edpt_stall(s_rhport, IQ_USB_EP_TX_OUT);
-    usbd_edpt_clear_stall(s_rhport, IQ_USB_EP_TX_OUT);
-  }
-  tx_upload_forget(true);
-  if (s_tx_network_suspended) {
-    iq_network_resume_after_usb_tx();
-    s_tx_network_suspended = false;
-  }
-  if (tud_mounted() && s_ep_tx_out != 0u) {
-    return NULL;
-  }
-  ++s_usb_tx_errors;
-  return "USB TX endpoint is not available";
 }
 
 static void ctrl_process_request(uint32_t request_bytes) {
@@ -610,27 +309,6 @@ static void ctrl_process_request(uint32_t request_bytes) {
       }
       n = iq_control_build_status_json(payload_out, payload_cap);
       error = n < 0 ? "status JSON too large" : NULL;
-      break;
-    case IQ_USB_OP_TX_ARM:
-      error = tx_upload_begin((const uint8_t *)payload_in,
-                              request->payload_bytes);
-      n = 0;
-      break;
-    case IQ_USB_OP_TX_COMMIT:
-      if (request->payload_bytes != 0u) {
-        error = "USB TX commit payload must be empty";
-      } else {
-        error = tx_upload_commit();
-      }
-      n = 0;
-      break;
-    case IQ_USB_OP_TX_ABORT:
-      if (request->payload_bytes != 0u) {
-        error = "USB TX abort payload must be empty";
-      } else {
-        error = tx_upload_abort();
-      }
-      n = 0;
       break;
     default:
       error = "unknown opcode";
@@ -1388,8 +1066,6 @@ static void drv_reset(uint8_t rhport) {
   s_ep_ctrl_out = 0u;
   s_ep_ctrl_in = 0u;
   s_ep_stream_in = 0u;
-  s_ep_tx_out = 0u;
-  tx_upload_forget(true);
   if (iq_network_stream_owner() == IQ_STREAM_OWNER_USB) {
     iq_network_stream_end();
   }
@@ -1419,9 +1095,6 @@ static uint16_t drv_open(uint8_t rhport, const tusb_desc_interface_t *desc_itf,
         break;
       case IQ_USB_EP_STREAM_IN:
         s_ep_stream_in = desc_ep->bEndpointAddress;
-        break;
-      case IQ_USB_EP_TX_OUT:
-        s_ep_tx_out = desc_ep->bEndpointAddress;
         break;
       default:
         break;
@@ -1489,29 +1162,7 @@ static bool drv_xfer_isr(uint8_t rhport, uint8_t ep_addr, xfer_result_t result,
 static bool drv_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result,
                         uint32_t xferred_bytes) {
   (void)rhport;
-  if (ep_addr == IQ_USB_EP_TX_OUT) {
-    if (result != XFER_RESULT_SUCCESS || s_tx_upload == NULL ||
-        xferred_bytes == 0u || xferred_bytes > s_tx_armed_bytes) {
-      ++s_usb_tx_errors;
-      tx_upload_forget(true);
-      return true;
-    }
-    uint8_t *completed =
-        (uint8_t *)s_tx_upload + s_tx_received_bytes;
-    /* DWC2 writes PSRAM behind the data cache. M2C invalidation requires a
-     * cache-line-aligned span; tx_upload_begin() pads the allocation so the
-     * final short transfer can safely round up here. */
-    (void)esp_cache_msync(
-        completed, (xferred_bytes + 63u) & ~63u,
-        ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_INVALIDATE);
-    s_tx_received_bytes += xferred_bytes;
-    s_tx_armed_bytes = 0u;
-    if (!tx_upload_arm_next()) {
-      ++s_usb_tx_errors;
-      tx_upload_forget(true);
-    }
-    return true;
-  }
+
   if (result != XFER_RESULT_SUCCESS) {
     return true;
   }
@@ -1562,21 +1213,6 @@ void iq_usb_stream_diag(iq_usb_stream_diag_t *diag) {
       .completion_bytes = s_diag_completion_bytes,
       .maximum_completion_cycles = s_diag_max_completion_cycles,
   };
-}
-
-void iq_usb_tx_diag(uint32_t *uploads, uint32_t *bytes, uint32_t *errors,
-                    uint32_t *backpressure_retries,
-                    uint32_t *commit_rejections,
-                    uint32_t *received_words, bool *active) {
-  *uploads = s_usb_tx_uploads;
-  *bytes = s_usb_tx_bytes;
-  *errors = s_usb_tx_errors;
-  *backpressure_retries = s_usb_tx_backpressure_retries;
-  *commit_rejections = s_usb_tx_commit_rejections;
-  *received_words = (s_tx_commit_flags & IQ_TX_USB_FLAG_PACKED20) != 0u
-                        ? (s_tx_received_bytes * 2u) / 5u
-                        : s_tx_received_bytes / sizeof(uint32_t);
-  *active = s_tx_upload != NULL;
 }
 
 bool iq_usb_mounted(void) { return tud_inited() && tud_mounted(); }

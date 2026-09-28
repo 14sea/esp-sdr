@@ -166,10 +166,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     </header>
 
     <div class="intro">
-      <h1>Network SDR transceiver</h1>
+      <h1>Network SDR receiver</h1>
       <p class="subtitle">ESP-SDR firmware for the ESP32-S31 Function-CoreBoard</p>
-      <p>ESP-SDR provides one half-duplex receive/transmit channel on the ESP32-S31 Function-CoreBoard. Radio control uses HTTP, continuous receive I/Q uses UDP, and session-token-gated finite transmit bursts are uploaded through the board's Gigabit Ethernet interface.</p>
-      <p>The <strong>SoapyESPSDR</strong> driver makes the transceiver available to software that supports SoapySDR, including Gqrx, GNU Radio, and SDR++.</p>
+      <p>ESP-SDR provides one receive channel. Radio control and captured I/Q are available over Ethernet and native high-speed USB.</p>
+      <p>The <strong>SoapyESPSDR</strong> driver makes the receiver available to software that supports SoapySDR, including Gqrx, GNU Radio, and SDR++.</p>
     </div>
 
     <section aria-labelledby="status-heading">
@@ -183,13 +183,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="panel">
       <table class="status-table">
         <tr><th>Stream state</th><td><span class="state" id="receiver">Unknown</span></td><th>Transport owner</th><td id="stream-owner">&mdash;</td></tr>
-        <tr><th>TX state</th><td id="tx-state">&mdash;</td><th>Last TX burst</th><td id="tx-words">&mdash;</td></tr>
         <tr><th>Center frequency</th><td id="frequency">&mdash;</td><th>Analog bandwidth</th><td id="bandwidth">&mdash;</td></tr>
         <tr><th>Sample rate</th><td id="sample-rate">&mdash;</td><th>Rate divisor</th><td id="decimation">&mdash;</td></tr>
         <tr><th>Receive gain</th><td id="gain">&mdash;</td><th>Duty cycle</th><td id="stream-selection">&mdash;</td></tr>
         <tr><th>Source chunk</th><td id="source-chunk">&mdash;</td><th>Dropped chunks</th><td id="drops">&mdash;</td></tr>
-        <tr><th>UDP send errors</th><td id="udp-errors">&mdash;</td><th>TX upload errors</th><td id="tx-errors">&mdash;</td></tr>
-        <tr><th>TX backpressure</th><td id="tx-retries">&mdash;</td><th>TX stale UDP</th><td id="tx-stale">&mdash;</td></tr>
+        <tr><th>UDP send errors</th><td id="udp-errors">&mdash;</td><th></th><td></td></tr>
         <tr><th>UDP frames</th><td id="udp-frames">&mdash;</td><th>UDP payload</th><td id="udp-bytes">&mdash;</td></tr>
       </table>
       </div>
@@ -198,11 +196,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     <section>
       <h2>Specifications</h2>
       <div class="panel"><table>
-        <tr><th>Direction</th><td>Half-duplex RX/TX, one channel</td></tr>
+        <tr><th>Direction</th><td>Receive only, one channel</td></tr>
         <tr><th>Frequency range</th><td>2300&ndash;2800 MHz</td></tr>
         <tr><th>RX sample rates</th><td>16 MSa/s divided by integers 1 through 10. Rates below 16 MSa/s are direct subsampling modes without digital anti-alias filtering</td></tr>
-        <tr><th>TX sample rates</th><td>Up to 4 MSa/s over Ethernet and 5.333 MSa/s over native USB; consecutive Soapy writes form one continuous RF stream</td></tr>
-        <tr><th>TX precision</th><td>Signed IQ8 at the two highest Ethernet rates by default, full IQ10 at lower Ethernet rates and over native USB</td></tr>
         <tr><th>Sample formats</th><td>CS8, CS16, and CF32 through SoapyESPSDR</td></tr>
         <tr><th>Analog bandwidth</th><td>Open/widest, or 13&ndash;54 MHz</td></tr>
         <tr><th>Gain</th><td>Automatic, or manual over the calibrated range reported by the device</td></tr>
@@ -223,7 +219,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </div>
         <div>
           <h2>Network address</h2>
-          <p>The transceiver advertises <strong>esp-sdr.local</strong> using mDNS. If mDNS is unavailable, use the IPv4 address assigned by the DHCP server.</p>
+          <p>The receiver advertises <strong>esp-sdr.local</strong> using mDNS. If mDNS is unavailable, use the IPv4 address assigned by the DHCP server.</p>
           <p>ESP-SDR has no authentication and should be used on a trusted network.</p>
         </div>
       </div>
@@ -233,7 +229,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <h2>Setup</h2>
         <ol>
           <li>Connect the board to Gigabit Ethernet and power it. DHCP assigns its IPv4 address.</li>
-          <li>Install SoapyESPSDR, then confirm that SoapySDR can reach the transceiver.
+          <li>Install SoapyESPSDR, then confirm that SoapySDR can reach the receiver.
             <code>SoapySDRUtil --probe="driver=espsdr,host=esp-sdr.local"</code>
           </li>
           <li>In Gqrx, select <strong>Other</strong> as the device and use:
@@ -244,7 +240,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
     <footer>
       <span>ESP-SDR by <a href="https://espargos.net/">ESPARGOS</a></span>
-      <span>Half-duplex SDR transceiver firmware</span>
+      <span>Receive-only SDR firmware</span>
     </footer>
   </main>
   <script>
@@ -299,16 +295,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         setText("header-address",status.has_ipv4?status.ipv4:"not assigned");
         setState("receiver",status.config_applying?"Applying configuration":status.streaming?"Streaming":"Idle",status.config_applying?"warn":status.streaming?"ok":"");
         setText("stream-owner",status.stream_owner||"none");
-        setText("tx-state",status.usb_tx_active?"USB upload":status.tx_udp_armed?"Ethernet upload armed":"Idle");
-        setText("tx-words",integer((status.tx_replay||{}).words)+" samples");
         const rxRate=Number(status.rx_sample_rate_hz||0)/1e6;
         setText("sample-rate",rxRate?rxRate.toFixed(3).replace(/\.000$/,"")+" MSa/s":"Unknown");
         setText("decimation",integer(status.rx_decimation));
         setText("drops",integer(status.firmware_dropped_chunks));
         setText("udp-errors",integer(status.udp_send_errors));
-        setText("tx-errors",integer(Number(status.tx_udp_errors||0)+Number(status.usb_tx_errors||0)));
-        setText("tx-retries",integer(Number(status.tx_udp_backpressure_retries||0)+Number(status.usb_tx_backpressure_retries||0)));
-        setText("tx-stale",integer(status.tx_udp_stale_datagrams));
         setText("udp-frames",integer(status.udp_frames));
         setText("udp-bytes",bytes(status.udp_bytes));
         setText("source-chunk",integer(status.source_chunk_index));

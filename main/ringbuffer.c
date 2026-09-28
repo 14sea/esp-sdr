@@ -1,7 +1,6 @@
 #include "ringbuffer.h"
 
 #include "dcoc.h"
-#include "sdr_agc.h"
 
 #include <assert.h>
 #include <string.h>
@@ -233,11 +232,8 @@ static void IRAM_ATTR fill_iq_header(stream_frame_t *frame,
   frame->iq.rx_gain = meta->rx_gain;
   frame->iq.flags = meta->agc_state & STREAM_FRAME_AGC_STATE_MASK;
   bool dcoc_running = dcoc_active();
-  if (dcoc_running && !meta->software_agc_active) {
-    /* Manual/expert gain leaves the software-AGC telemetry payload unused.
-     * Carry the DCOC estimator's two signed residuals there so a host can
-     * observe convergence per frame without adding wire bytes or control
-     * traffic to a full-rate stream. */
+  if (dcoc_running) {
+    /* Carry the DCOC estimator's signed residuals without adding wire bytes. */
     uint32_t diagnostic = dcoc_diag();
     uint32_t raw_i = (diagnostic >> 14) & 0x3fffu;
     uint32_t raw_q = diagnostic & 0x3fffu;
@@ -255,20 +251,6 @@ static void IRAM_ATTR fill_iq_header(stream_frame_t *frame,
     frame->iq.flags |=
         ((uint32_t)error_q & STREAM_FRAME_DCOC_ERROR_M)
         << STREAM_FRAME_DCOC_ERROR_Q_S;
-  } else {
-    uint32_t gain_changes = meta->agc_gain_changes;
-    if (gain_changes > 0xffffu) {
-      gain_changes = 0xffffu;
-    }
-    uint32_t robust_peak = meta->agc_robust_peak;
-    if (robust_peak > 0x1ffu) {
-      robust_peak = 0x1ffu;
-    }
-    frame->iq.flags |= gain_changes << STREAM_FRAME_AGC_GAIN_CHANGES_S;
-    frame->iq.flags |= robust_peak << STREAM_FRAME_AGC_ROBUST_PEAK_S;
-  }
-  if (meta->software_agc_active) {
-    frame->iq.flags |= STREAM_FRAME_FLAG_SOFTWARE_AGC_ACTIVE;
   }
   if (dcoc_running) {
     frame->iq.flags |= STREAM_FRAME_FLAG_DCOC_ACTIVE;
@@ -428,65 +410,9 @@ uint32_t stream_ring_peek_batch(stream_frame_t **frames, uint32_t max_count) {
   return count;
 }
 
-static void observe_frame_for_sdr_agc(const stream_frame_t *frame) {
-  if (!sdr_agc_active()) {
-    return;
-  }
-  sdr_agc_peak_hist_t hist = {0};
-  if (memcmp(frame->iq.magic, STREAM_FRAME_MAGIC_IQ, 4u) == 0) {
-    for (uint32_t j = 0u; j < SDR_AGC_SAMPLES_PER_CHUNK; ++j) {
-      sdr_agc_peak_add_word(&hist,
-                            frame->iq.samples[j * SDR_AGC_SAMPLE_STRIDE]);
-    }
-  } else if (memcmp(frame->iq.magic, STREAM_FRAME_MAGIC_IQ8, 4u) == 0) {
-    const int8_t *samples =
-        (const int8_t *)((const uint8_t *)frame + offsetof(iq_chunk_t, samples));
-    for (uint32_t j = 0u; j < SDR_AGC_SAMPLES_PER_CHUNK; ++j) {
-      uint32_t index = j * SDR_AGC_SAMPLE_STRIDE;
-      int32_t i = samples[2u * index];
-      int32_t q = samples[2u * index + 1u];
-      uint32_t abs_i = (uint32_t)(i < 0 ? -i : i) << 2;
-      uint32_t abs_q = (uint32_t)(q < 0 ? -q : q) << 2;
-      sdr_agc_peak_add_value(&hist, abs_i > abs_q ? abs_i : abs_q);
-    }
-  } else if (memcmp(frame->iq.magic, STREAM_FRAME_MAGIC_IQ4, 4u) == 0) {
-    const uint8_t *samples =
-        (const uint8_t *)frame + offsetof(iq_chunk_t, samples);
-    for (uint32_t j = 0u; j < SDR_AGC_SAMPLES_PER_CHUNK; ++j) {
-      uint8_t packed = samples[j * SDR_AGC_SAMPLE_STRIDE];
-      int32_t i = (int32_t)(packed & 0x0fu);
-      int32_t q = (int32_t)(packed >> 4u);
-      i = i >= 8 ? i - 16 : i;
-      q = q >= 8 ? q - 16 : q;
-      uint32_t abs_i = (uint32_t)(i < 0 ? -i : i) << 6;
-      uint32_t abs_q = (uint32_t)(q < 0 ? -q : q) << 6;
-      sdr_agc_peak_add_value(&hist, abs_i > abs_q ? abs_i : abs_q);
-    }
-  } else if (memcmp(frame->iq.magic, STREAM_FRAME_MAGIC_REAL8, 4u) == 0) {
-    const int8_t *samples =
-        (const int8_t *)((const uint8_t *)frame + offsetof(iq_chunk_t, samples));
-    for (uint32_t j = 0u; j < SDR_AGC_SAMPLES_PER_CHUNK; ++j) {
-      int32_t value = samples[2u * j * SDR_AGC_SAMPLE_STRIDE];
-      uint32_t magnitude = (uint32_t)(value < 0 ? -value : value) << 2;
-      sdr_agc_peak_add_value(&hist, magnitude);
-    }
-  } else {
-    return;
-  }
-  sdr_agc_feed_peak(sdr_agc_peak_value(&hist));
-}
-
 void stream_ring_pop_batch(uint32_t count) {
   if (count == 0u) {
     return;
-  }
-  /* The transport has finished with this frame, but the producer cannot reuse
-   * its slots until the pop below. Observe them here, off the producer's
-   * critical path and without another dump-SRAM traversal. */
-  stream_frame_t *frames[IQ_STREAM_RING_CHUNKS];
-  uint32_t available = stream_ring_peek_batch(frames, count);
-  for (uint32_t i = 0u; i < available; ++i) {
-    observe_frame_for_sdr_agc(frames[i]);
   }
   taskENTER_CRITICAL(&s_stream_ring_mux);
   if (count > s_stream_ring_count) {
@@ -517,7 +443,7 @@ size_t stream_frame_wire_size(stream_frame_t *frame) {
   if (memcmp(frame->iq.magic, STREAM_FRAME_MAGIC_REAL8, 4u) == 0) {
     return REAL8_FRAME_WIRE_BYTES;
   }
-  if (memcmp(frame->wifi.magic, WIFI_TX_RX_REPORT_MAGIC, 4u) == 0) {
+  if (memcmp(frame->wifi.magic, WIFI_RX_REPORT_MAGIC, 4u) == 0) {
     return sizeof(frame->wifi);
   }
   if (memcmp(frame->config.magic, STREAM_FRAME_MAGIC_CONFIG, 4u) == 0) {

@@ -2,7 +2,6 @@
 #include "gaintable.h"
 #include "iq_usb.h"
 #include "ringbuffer.h"
-#include "sdr_agc.h"
 
 #include <inttypes.h>
 #include <stdatomic.h>
@@ -39,7 +38,6 @@
 #include "mdns.h"
 
 #define HTTP_BODY_MAX_BYTES 4096u
-#define TX_WAVEFORM_MAX_BYTES (TX_BATCH_WORDS_MAX * sizeof(uint32_t))
 #define UDP_PACKET_BYTES                                                       \
   (sizeof(iq_udp_header_t) + IQ_UDP_FRAGMENT_PAYLOAD_BYTES)
 #define ETH_HEADER_BYTES 14u
@@ -49,17 +47,6 @@
   (ETH_HEADER_BYTES + IPV4_HEADER_BYTES + UDP_HEADER_BYTES + UDP_PACKET_BYTES)
 #define STREAM_ARM_DELAY_US 100000u
 #define IQ_ETH_TX_MUTEX_TIMEOUT_MS 250u
-#define TX_UDP_ARM_LIFETIME_US 15000000ll
-#define TX_UDP_WORDS_PER_DATAGRAM                                          \
-  (IQ_UDP_FRAGMENT_PAYLOAD_BYTES / sizeof(uint32_t))
-#define TX_UDP_PACKED20_WORDS_PER_DATAGRAM                                     \
-  (IQ_UDP_FRAGMENT_PAYLOAD_BYTES * 2u / 5u)
-#define TX_UDP_PACKED16_WORDS_PER_DATAGRAM                                     \
-  (IQ_UDP_FRAGMENT_PAYLOAD_BYTES / 2u)
-#define TX_UDP_DATAGRAMS_MAX                                               \
-  ((TX_BATCH_WORDS_MAX + TX_UDP_WORDS_PER_DATAGRAM - 1u) /                 \
-   TX_UDP_WORDS_PER_DATAGRAM)
-
 static const char *TAG = "iq_network";
 static iq_network_callbacks_t s_callbacks;
 static esp_eth_handle_t s_eth_handle;
@@ -83,9 +70,6 @@ static void stream_arm_timer_callback(void *arg) {
 
 static volatile bool s_link_up;
 static volatile bool s_has_ipv4;
-static bool s_ethernet_suspended_for_usb_tx;
-static volatile bool s_ethernet_resume_pending;
-static TaskHandle_t s_ethernet_resume_task_handle;
 static uint32_t s_ipv4_address;
 static uint32_t s_stream_epoch;
 static uint32_t s_datagram_sequence;
@@ -99,45 +83,6 @@ static volatile uint32_t s_eth_tx_desc_underflows;
 static volatile uint32_t s_eth_tx_desc_flushed;
 static volatile uint32_t s_eth_tx_desc_carrier_errors;
 static volatile uint32_t s_eth_dma_status;
-static volatile uint32_t s_tx_udp_datagrams;
-static volatile uint32_t s_tx_udp_bytes;
-static volatile uint32_t s_tx_udp_errors;
-static volatile uint32_t s_tx_udp_stale_datagrams;
-static volatile uint32_t s_tx_udp_backpressure_retries;
-static volatile uint32_t s_tx_udp_commit_rejections;
-static volatile uint32_t s_tx_udp_batch_id;
-static volatile uint32_t s_tx_udp_received_words;
-static volatile uint32_t s_tx_udp_committed_words;
-static volatile uint32_t s_tx_udp_commits;
-static portMUX_TYPE s_tx_udp_arm_mux = portMUX_INITIALIZER_UNLOCKED;
-static uint32_t s_tx_udp_allowed_ipv4;
-static uint32_t s_tx_udp_session_token;
-static int64_t s_tx_udp_arm_expires_us;
-static uint32_t *s_tx_udp_batch;
-static uint32_t s_tx_udp_batch_capacity_words;
-static uint8_t s_tx_udp_batch_storage_bits;
-static uint32_t s_tx_udp_session_max_words;
-static bool s_tx_udp_session_packed20;
-static bool s_tx_udp_session_packed16;
-static uint32_t s_tx_udp_expected_sequence;
-static uint32_t s_tx_udp_final_sequence;
-static uint32_t s_tx_udp_total_words;
-static uint32_t s_tx_udp_commit_token;
-static uint16_t s_tx_udp_commit_flags;
-static uint64_t s_tx_udp_start_time_ns;
-static bool s_tx_udp_commit_pending;
-static bool s_tx_udp_packed20;
-static bool s_tx_udp_packed16;
-static bool s_tx_udp_expanded_compact;
-static uint32_t s_tx_udp_compact_base_bytes;
-static volatile uint32_t s_tx_udp_unpack_max_cycles;
-static uint32_t s_tx_udp_received_bitmap[(TX_UDP_DATAGRAMS_MAX + 31u) / 32u];
-/* IDF normally allocates and copies one frame per RX-task callback.  Drain
- * queued, single-descriptor TX-IQ frames directly into the ordered PSRAM
- * batch; ordinary Ethernet traffic retains the stock ownership contract. */
-static volatile uint32_t s_tx_udp_direct_frames;
-static volatile uint32_t s_tx_udp_direct_max_cycles;
-static volatile uint64_t s_tx_udp_direct_total_cycles;
 /* The stream task is the sole writer. The GMAC driver copies a frame into its
  * DMA ring before returning, so this staging frame can be reused immediately. */
 static uint8_t s_tx_frame[TX_FRAME_BYTES];
@@ -344,7 +289,6 @@ static bool parse_config(cJSON *root, capture_config_t *c) {
   GET_OBJECT("gain") {
     U32("gain_mode", gain.gain_mode);
     U32("rx_gain", gain.rx_gain);
-    U32("tx_gain", gain.tx_gain);
     U32("expert_gain_word0", gain.expert_gain_word0);
     U32("expert_gain_word1", gain.expert_gain_word1);
     U32("expert_gain_word2", gain.expert_gain_word2);
@@ -353,16 +297,7 @@ static bool parse_config(cJSON *root, capture_config_t *c) {
     U32("bw_mhz", bandwidth.bw_mhz);
     U32("second_chan", bandwidth.second_chan);
   }
-  GET_OBJECT("loopback") {
-    U32("loopback", loopback.loopback);
-    U32("loopback_tx_gain", loopback.loopback_tx_gain);
-    U32("loopback_rx_gain", loopback.loopback_rx_gain);
-    U32("loopback_bb_gain", loopback.loopback_bb_gain);
-  }
-  GET_OBJECT("tx") {
-    U32("tx_tone_enable", tx.tx_tone_enable);
-    c->tx.tx_tone0_step = json_i32(o, "tx_tone0_step", c->tx.tx_tone0_step);
-  }
+
   GET_OBJECT("iq_engine") {
     U32("adc_decimation", iq_engine.adc_decimation);
     U32("adc_source_sel", iq_engine.adc_source_sel);
@@ -385,10 +320,7 @@ static bool parse_config(cJSON *root, capture_config_t *c) {
     U32("rx_filter_mode", rx_filter.rx_filter_mode);
     U32("rx_filter_dcap", rx_filter.rx_filter_dcap);
   }
-  GET_OBJECT("wifi_tx") {
-    U32("wifi_dummy_tx_enable", wifi_tx.wifi_dummy_tx_enable);
-    U32("wifi_dummy_tx_interval_ms", wifi_tx.wifi_dummy_tx_interval_ms);
-  }
+
   GET_OBJECT("dc_offset") {
     U32("automatic", dc_offset.automatic);
   }
@@ -400,12 +332,10 @@ static bool parse_config(cJSON *root, capture_config_t *c) {
 static const char *validate_config(const capture_config_t *c) {
   const uint8_t gain_entry_count = gaintable_entry_count();
   if (c->gain.gain_mode > GAIN_MODE_EXPERT)
-    return "gain_mode must be 0 (auto), 1 (manual), or 2 (expert)";
+    return "gain_mode must be 0 (hardware AGC), 1 (manual), or 2 (expert)";
   if (c->gain.gain_mode == GAIN_MODE_MANUAL &&
       (gain_entry_count == 0u || c->gain.rx_gain >= gain_entry_count))
     return "manual rx_gain exceeds the calibrated gain table";
-  if (c->gain.tx_gain > TX_GAIN_MAX)
-    return "tx_gain must be in the range 0..63";
   if (c->radio.frequency_correction_ppb < -RF_CORRECTION_MAX_PPB ||
       c->radio.frequency_correction_ppb > RF_CORRECTION_MAX_PPB)
     return "frequency_correction_ppb must be in the range -100000..100000";
@@ -423,13 +353,9 @@ int iq_control_build_config_json(char *text, size_t cap) {
       "\"radio\":{\"rf_freq_hz\":%" PRIu32
       ",\"frequency_correction_ppb\":%" PRId32 "},"
       "\"gain\":{\"gain_mode\":%" PRIu32 ",\"rx_gain\":%" PRIu32
-      ",\"tx_gain\":%" PRIu32
       ",\"expert_gain_word0\":%" PRIu32 ",\"expert_gain_word1\":%" PRIu32
       ",\"expert_gain_word2\":%" PRIu32 "},"
       "\"bandwidth\":{\"bw_mhz\":%" PRIu32 ",\"second_chan\":%" PRIu32 "},"
-      "\"loopback\":{\"loopback\":%" PRIu32 ",\"loopback_tx_gain\":%" PRIu32
-      ",\"loopback_rx_gain\":%" PRIu32 ",\"loopback_bb_gain\":%" PRIu32 "},"
-      "\"tx\":{\"tx_tone_enable\":%" PRIu32 ",\"tx_tone0_step\":%" PRId32 "},"
       "\"iq_engine\":{\"adc_decimation\":%" PRIu32 ",\"adc_source_sel\":%" PRIu32 "},"
       "\"trigger\":{\"trigger_mode\":%" PRIu32 ",\"trigger_config\":[%" PRIu32
       ",%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32
@@ -438,18 +364,13 @@ int iq_control_build_config_json(char *text, size_t cap) {
       "\"rx_filter\":{\"filter_bw_mhz\":%" PRIu32
       ",\"rx_filter_override\":%" PRIu32 ",\"rx_filter_mode\":%" PRIu32
       ",\"rx_filter_dcap\":%" PRIu32 "},"
-      "\"wifi_tx\":{\"wifi_dummy_tx_enable\":%" PRIu32
-      ",\"wifi_dummy_tx_interval_ms\":%" PRIu32 "},"
       "\"dc_offset\":{\"automatic\":%" PRIu32 "}}",
       config.stream.stream_wifi_packets, config.radio.rf_freq_hz,
       config.radio.frequency_correction_ppb,
-      config.gain.gain_mode, config.gain.rx_gain, config.gain.tx_gain,
+      config.gain.gain_mode, config.gain.rx_gain,
       config.gain.expert_gain_word0,
       config.gain.expert_gain_word1, config.gain.expert_gain_word2,
       config.bandwidth.bw_mhz, config.bandwidth.second_chan,
-      config.loopback.loopback, config.loopback.loopback_tx_gain,
-      config.loopback.loopback_rx_gain, config.loopback.loopback_bb_gain,
-      config.tx.tx_tone_enable, config.tx.tx_tone0_step,
       config.iq_engine.adc_decimation, config.iq_engine.adc_source_sel,
       config.trigger.trigger_mode, config.trigger.trigger_config[0],
       config.trigger.trigger_config[1], config.trigger.trigger_config[2],
@@ -461,8 +382,8 @@ int iq_control_build_config_json(char *text, size_t cap) {
       config.trigger.trigger_config[13], config.trigger.trigger_config[14],
       config.trigger.trigger_config[15], config.rx_filter.filter_bw_mhz,
       config.rx_filter.rx_filter_override, config.rx_filter.rx_filter_mode,
-      config.rx_filter.rx_filter_dcap, config.wifi_tx.wifi_dummy_tx_enable,
-      config.wifi_tx.wifi_dummy_tx_interval_ms, config.dc_offset.automatic);
+      config.rx_filter.rx_filter_dcap,
+      config.dc_offset.automatic);
   return (n > 0 && (size_t)n < cap) ? n : -1;
 }
 
@@ -532,783 +453,9 @@ static esp_err_t config_put_handler(httpd_req_t *req) {
   return response_err;
 }
 
-static esp_err_t tx_waveform_put_handler(httpd_req_t *req) {
-  if (req->content_len <= 0 ||
-      (req->content_len % (int)sizeof(uint32_t)) != 0 ||
-      req->content_len > (int)TX_WAVEFORM_MAX_BYTES) {
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                        "body must contain 1..1048512 packed IQ10 words");
-    return ESP_ERR_INVALID_SIZE;
-  }
-  capture_config_t config;
-  s_callbacks.get_config(&config);
-  if (s_callbacks.is_config_applying() || config.tx.tx_tone_enable != 0u) {
-    httpd_resp_set_status(req, "409 Conflict");
-    return httpd_resp_sendstr(req, "stop TX before uploading a waveform");
-  }
-  /* A maximum batch is about 4 MiB. Receive it in PSRAM; the callback copies
-   * it to its persistent PSRAM slot before this returns. */
-  uint32_t *words = heap_caps_malloc((size_t)req->content_len,
-                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (words == NULL) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                        "out of memory");
-    return ESP_ERR_NO_MEM;
-  }
-  size_t received = 0u;
-  while (received < (size_t)req->content_len) {
-    int n = httpd_req_recv(req, (char *)words + received,
-                           (size_t)req->content_len - received);
-    if (n <= 0) {
-      free(words);
-      return ESP_FAIL;
-    }
-    received += (size_t)n;
-  }
-  uint32_t word_count = (uint32_t)(received / sizeof(uint32_t));
-  for (uint32_t i = 0u; i < word_count; ++i) {
-    if ((words[i] & 0xfff00000u) != 0u) {
-      free(words);
-      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                          "IQ10 word uses reserved upper bits");
-      return ESP_ERR_INVALID_ARG;
-    }
-  }
-  bool stored = s_callbacks.set_tx_waveform != NULL &&
-                s_callbacks.set_tx_waveform(words, word_count);
-  free(words);
-  if (!stored) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                        "could not store waveform");
-    return ESP_FAIL;
-  }
-  httpd_resp_set_status(req, "204 No Content");
-  return httpd_resp_send(req, NULL, 0);
-}
-
-static bool http_peer_ipv4(httpd_req_t *req, uint32_t *ipv4) {
-  struct sockaddr_storage peer = {0};
-  socklen_t peer_len = sizeof(peer);
-  if (getpeername(httpd_req_to_sockfd(req), (struct sockaddr *)&peer,
-                  &peer_len) != 0) {
-    return false;
-  }
-  if (peer.ss_family == AF_INET) {
-    *ipv4 = ((struct sockaddr_in *)&peer)->sin_addr.s_addr;
-    return true;
-  }
-  if (peer.ss_family == AF_INET6) {
-    const uint8_t *bytes =
-        ((struct sockaddr_in6 *)&peer)->sin6_addr.s6_addr;
-    static const uint8_t mapped_prefix[12] = {0, 0, 0, 0, 0,    0,
-                                              0, 0, 0, 0, 0xff, 0xff};
-    if (memcmp(bytes, mapped_prefix, sizeof(mapped_prefix)) == 0) {
-      memcpy(ipv4, bytes + 12, sizeof(*ipv4));
-      return true;
-    }
-  }
-  return false;
-}
-
-static esp_err_t tx_udp_arm_handler(httpd_req_t *req) {
-  /* This endpoint is used once per continuous-TX batch. esp_http_server
-   * emits the small headers and JSON body separately; with Nagle enabled the
-   * body can sit behind a roughly 40 ms delayed ACK on a persistent control
-   * connection. Keep this socket low-latency for the remainder of its life. */
-  const int http_fd = httpd_req_to_sockfd(req);
-  const int tcp_nodelay = 1;
-  (void)setsockopt(http_fd, IPPROTO_TCP, TCP_NODELAY, &tcp_nodelay,
-                   sizeof(tcp_nodelay));
-  uint32_t peer_ipv4 = 0u;
-  if (!http_peer_ipv4(req, &peer_ipv4)) {
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                        "TX UDP requires an IPv4 HTTP peer");
-    return ESP_ERR_NOT_SUPPORTED;
-  }
-  cJSON *json = NULL;
-  ESP_RETURN_ON_ERROR(receive_json(req, &json), TAG,
-                      "receive TX UDP arm JSON");
-  uint64_t start_time_ns = 0u;
-  uint32_t requested_words = TX_BATCH_WORDS_MAX;
-  cJSON *start_json =
-      cJSON_GetObjectItemCaseSensitive(json, "start_time_ns");
-  if (start_json != NULL) {
-    if (!cJSON_IsNumber(start_json) || start_json->valuedouble < 0.0 ||
-        start_json->valuedouble > (double)INT64_MAX) {
-      cJSON_Delete(json);
-      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                          "start_time_ns must be a non-negative integer");
-      return ESP_ERR_INVALID_ARG;
-    }
-    start_time_ns = (uint64_t)start_json->valuedouble;
-  }
-  cJSON *words_json =
-      cJSON_GetObjectItemCaseSensitive(json, "word_count");
-  if (words_json != NULL) {
-    if (!cJSON_IsNumber(words_json) || words_json->valuedouble < 1.0 ||
-        words_json->valuedouble > TX_BATCH_WORDS_MAX ||
-        words_json->valuedouble != (double)(uint32_t)words_json->valuedouble) {
-      cJSON_Delete(json);
-      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                          "word_count must be an integer in range");
-      return ESP_ERR_INVALID_ARG;
-    }
-    requested_words = (uint32_t)words_json->valuedouble;
-  }
-  bool requested_packed20 = false;
-  cJSON *packed20_json = cJSON_GetObjectItemCaseSensitive(json, "packed20");
-  if (packed20_json != NULL) {
-    if (!cJSON_IsBool(packed20_json)) {
-  cJSON_Delete(json);
-      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                          "packed20 must be boolean");
-      return ESP_ERR_INVALID_ARG;
-    }
-    requested_packed20 = cJSON_IsTrue(packed20_json);
-  }
-  bool requested_packed16 = false;
-  cJSON *packed16_json = cJSON_GetObjectItemCaseSensitive(json, "packed16");
-  if (packed16_json != NULL) {
-    if (!cJSON_IsBool(packed16_json)) {
-      cJSON_Delete(json);
-      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                          "packed16 must be boolean");
-      return ESP_ERR_INVALID_ARG;
-    }
-    requested_packed16 = cJSON_IsTrue(packed16_json);
-  }
-  if (requested_packed16 && requested_packed20) {
-    cJSON_Delete(json);
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                        "packed16 and packed20 are mutually exclusive");
-    return ESP_ERR_INVALID_ARG;
-  }
-  cJSON_Delete(json);
-#if CONFIG_IDF_TARGET_ESP32S31
-  const uint8_t requested_storage_bits = requested_packed16 ? 16u
-                                         : requested_packed20 ? 20u
-                                                              : 32u;
-#else
-  const uint8_t requested_storage_bits = 32u;
-#endif
-  const size_t requested_bytes = requested_storage_bits == 16u
-                                     ? (size_t)requested_words * 2u
-                                 : requested_storage_bits == 20u
-                                     ? ((size_t)requested_words * 5u + 1u) / 2u
-                                     : (size_t)requested_words *
-                                           sizeof(*s_tx_udp_batch);
-  if (s_tx_udp_batch != NULL &&
-      s_tx_udp_batch_storage_bits != requested_storage_bits) {
-    heap_caps_free(s_tx_udp_batch);
-    s_tx_udp_batch = NULL;
-    s_tx_udp_batch_capacity_words = 0u;
-  }
-  if (s_tx_udp_batch != NULL &&
-      s_tx_udp_batch_capacity_words < requested_words) {
-    uint32_t *resized = heap_caps_realloc(
-        s_tx_udp_batch, requested_bytes,
-        MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
-    if (resized == NULL) {
-      resized = heap_caps_realloc(
-          s_tx_udp_batch, requested_bytes,
-          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    }
-    if (resized != NULL) {
-      s_tx_udp_batch = resized;
-      s_tx_udp_batch_capacity_words = requested_words;
-      s_tx_udp_batch_storage_bits = requested_storage_bits;
-    }
-  }
-  if (s_tx_udp_batch == NULL) {
-    /* A full continuation FIFO owns up to six large batches. At 2 MSa/s each
-     * 1,048,320-sample buffer remains live for 524 ms, so the historical
-     * 300 ms allocator retry falsely reported OOM before the oldest batch
-     * could be recycled. Keep the endpoint backpressured for up to two
-     * seconds; the Soapy call has a ten-second end-to-end timeout. */
-    for (uint32_t attempt = 0u;
-         attempt < 2000u && s_tx_udp_batch == NULL; ++attempt) {
-      if (s_callbacks.reclaim_tx_waveforms != NULL) {
-        s_callbacks.reclaim_tx_waveforms();
-      }
-      s_tx_udp_batch = heap_caps_malloc(requested_bytes,
-          MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
-      if (s_tx_udp_batch == NULL) {
-        /* Preserve compatibility on targets whose capability allocator does
-         * not label external RAM as DMA-addressable. */
-        s_tx_udp_batch = heap_caps_malloc(requested_bytes,
-            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-      }
-      if (s_tx_udp_batch != NULL) {
-        s_tx_udp_batch_capacity_words = requested_words;
-        s_tx_udp_batch_storage_bits = requested_storage_bits;
-      }
-      if (s_tx_udp_batch == NULL) {
-        vTaskDelay(1);
-      }
-    }
-    if (s_tx_udp_batch == NULL) {
-      httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                          "cannot allocate TX UDP batch buffer");
-      return ESP_ERR_NO_MEM;
-    }
-  }
-  if (s_tx_udp_batch_capacity_words < requested_words) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                        "cannot grow TX UDP batch buffer");
-    return ESP_ERR_NO_MEM;
-  }
-  s_tx_udp_session_max_words = requested_words;
-  s_tx_udp_session_packed20 = requested_packed20;
-  s_tx_udp_session_packed16 = requested_packed16;
-  uint32_t token = esp_random();
-  if (token == 0u) {
-    token = 1u;
-  }
-  int64_t expires_us = esp_timer_get_time() + TX_UDP_ARM_LIFETIME_US;
-  taskENTER_CRITICAL(&s_tx_udp_arm_mux);
-  s_tx_udp_allowed_ipv4 = peer_ipv4;
-  s_tx_udp_session_token = token;
-  s_tx_udp_arm_expires_us = expires_us;
-  s_tx_udp_start_time_ns = start_time_ns;
-  taskEXIT_CRITICAL(&s_tx_udp_arm_mux);
-
-  char response[192];
-  int length = snprintf(response, sizeof(response),
-                        "{\"port\":%u,\"session_token\":%" PRIu32
-                        ",\"max_words\":%" PRIu32 ",\"expires_ms\":15000"
-                        ",\"commit_count\":%" PRIu32
-                        ",\"error_count\":%" PRIu32 "}",
-                        IQ_NETWORK_TX_UDP_PORT, token, requested_words,
-                        s_tx_udp_commits,
-                        s_tx_udp_errors + s_tx_udp_commit_rejections);
-  ESP_RETURN_ON_FALSE(length > 0 && length < (int)sizeof(response),
-                      ESP_ERR_INVALID_SIZE, TAG, "format TX UDP arm response");
-  httpd_resp_set_type(req, "application/json");
-  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-  return httpd_resp_send(req, response, length);
-}
-
-static bool tx_udp_session_valid(uint32_t peer_ipv4, uint32_t token) {
-  bool valid;
-  int64_t now_us = esp_timer_get_time();
-  taskENTER_CRITICAL(&s_tx_udp_arm_mux);
-  valid = token != 0u && token == s_tx_udp_session_token &&
-          peer_ipv4 == s_tx_udp_allowed_ipv4 &&
-          now_us < s_tx_udp_arm_expires_us;
-  taskEXIT_CRITICAL(&s_tx_udp_arm_mux);
-  return valid;
-}
-
-static bool tx_udp_session_armed(void) {
-  bool armed;
-  int64_t now_us = esp_timer_get_time();
-  taskENTER_CRITICAL(&s_tx_udp_arm_mux);
-  armed = s_tx_udp_session_token != 0u &&
-          now_us < s_tx_udp_arm_expires_us;
-  taskEXIT_CRITICAL(&s_tx_udp_arm_mux);
-  return armed;
-}
-
-static void tx_udp_session_disarm(uint32_t token) {
-  taskENTER_CRITICAL(&s_tx_udp_arm_mux);
-  if (token == s_tx_udp_session_token) {
-    s_tx_udp_session_token = 0u;
-    s_tx_udp_allowed_ipv4 = 0u;
-    s_tx_udp_arm_expires_us = 0;
-    s_tx_udp_start_time_ns = 0u;
-  }
-  taskEXIT_CRITICAL(&s_tx_udp_arm_mux);
-}
-
-static bool tx_udp_bitmap_test(uint32_t sequence) {
-  return (s_tx_udp_received_bitmap[sequence / 32u] &
-          BIT(sequence % 32u)) != 0u;
-}
-
-static void tx_udp_bitmap_set(uint32_t sequence) {
-  s_tx_udp_received_bitmap[sequence / 32u] |= BIT(sequence % 32u);
-}
-
-#if !CONFIG_IDF_TARGET_ESP32S31
-static void __attribute__((noinline, optimize("O3,unroll-loops")))
-tx_udp_unpack20_in_place(uint32_t *storage, const uint8_t *source,
-                         uint32_t sample_count) {
-  /* Source and destination share the allocation. Decode backwards because
-   * each 32-bit destination sample is wider than its 20-bit wire sample. */
-  for (uint32_t index = sample_count; index != 0u;) {
-    --index;
-    const uint8_t *pair = source + (index >> 1u) * 5u;
-    storage[index] = (index & 1u) != 0u
-                         ? ((uint32_t)pair[2] >> 4u) |
-                               ((uint32_t)pair[3] << 4u) |
-                               ((uint32_t)pair[4] << 12u)
-                         : (uint32_t)pair[0] |
-                               ((uint32_t)pair[1] << 8u) |
-                               (((uint32_t)pair[2] & 0x0fu) << 16u);
-  }
-}
-
-static void __attribute__((noinline, optimize("O3,unroll-loops")))
-tx_udp_unpack16_in_place(uint32_t *storage, const uint8_t *source,
-                         uint32_t sample_count) {
-  /* Decode backwards so expansion cannot overwrite unread compact bytes. */
-  for (uint32_t index = sample_count; index != 0u;) {
-    --index;
-    const int32_t i = (int32_t)(int8_t)source[index * 2u] * 4;
-    const int32_t q = (int32_t)(int8_t)source[index * 2u + 1u] * 4;
-    storage[index] = ((uint32_t)i & 0x3ffu) |
-                     (((uint32_t)q & 0x3ffu) << 10u);
-  }
-}
-#endif
-
-static bool tx_udp_try_commit(void) {
-  if (!s_tx_udp_commit_pending ||
-      s_tx_udp_received_words != s_tx_udp_total_words) {
-    return false;
-  }
-  if ((s_tx_udp_packed20 || s_tx_udp_packed16) &&
-      !s_tx_udp_expanded_compact) {
-#if CONFIG_IDF_TARGET_ESP32S31
-    /* S31's CPU-fed TXDC backend consumes compact IQ directly. Expanding a
-     * 524288-sample batch here either occupies the EMAC receive task for
-     * about 40 ms (CPU) or makes a second uncached PSRAM round trip for about
-     * 150 ms (BitScrambler).  Both erase the bandwidth gained on the wire.
-     * Preserve the allocation base for ownership/recycling and pass the
-     * packed flag through to the realtime emitter instead. */
-    s_tx_udp_expanded_compact = true;
-#else
-    const uint32_t unpack_start = esp_cpu_get_cycle_count();
-    uint8_t *source = (uint8_t *)s_tx_udp_batch +
-                      s_tx_udp_compact_base_bytes;
-    const size_t compact_bytes = s_tx_udp_packed16
-                                     ? (size_t)s_tx_udp_total_words * 2u
-                                     : ((size_t)s_tx_udp_total_words * 5u +
-                                        1u) /
-                                           2u;
-    const size_t unpack_base =
-        (size_t)s_tx_udp_total_words * sizeof(*s_tx_udp_batch) -
-        compact_bytes;
-    if (unpack_base != s_tx_udp_compact_base_bytes) {
-      memmove((uint8_t *)s_tx_udp_batch + unpack_base, source,
-              compact_bytes);
-      source = (uint8_t *)s_tx_udp_batch + unpack_base;
-    }
-    if (s_tx_udp_packed16) {
-      tx_udp_unpack16_in_place(s_tx_udp_batch, source,
-                               s_tx_udp_total_words);
-    } else {
-      tx_udp_unpack20_in_place(s_tx_udp_batch, source,
-                               s_tx_udp_total_words);
-    }
-    const uint32_t unpack_cycles = esp_cpu_get_cycle_count() - unpack_start;
-    if (unpack_cycles > s_tx_udp_unpack_max_cycles) {
-      s_tx_udp_unpack_max_cycles = unpack_cycles;
-    }
-    s_tx_udp_expanded_compact = true;
-#endif
-  }
-  bool adopted = false;
-  bool stored = false;
-  if (s_callbacks.take_tx_waveform != NULL) {
-    const iq_tx_waveform_result_t result =
-        s_callbacks.take_tx_waveform(s_tx_udp_batch,
-                                     s_tx_udp_total_words,
-                                     s_tx_udp_commit_flags,
-                                     s_tx_udp_start_time_ns);
-    if (result == IQ_TX_WAVEFORM_RETRY) {
-      ++s_tx_udp_backpressure_retries;
-      return false;
-    }
-    adopted = result == IQ_TX_WAVEFORM_ADOPTED;
-    stored = adopted;
-  } else if (s_callbacks.set_tx_waveform != NULL) {
-    stored = s_callbacks.set_tx_waveform(s_tx_udp_batch,
-                                         s_tx_udp_total_words);
-  }
-  if (!stored) {
-    ++s_tx_udp_commit_rejections;
-    s_tx_udp_commit_pending = false;
-    tx_udp_session_disarm(s_tx_udp_commit_token);
-    return false;
-  }
-  s_tx_udp_committed_words = s_tx_udp_total_words;
-  ++s_tx_udp_commits;
-  s_tx_udp_commit_pending = false;
-  if (adopted) {
-    s_tx_udp_batch = NULL;
-    s_tx_udp_batch_capacity_words = 0u;
-  }
-  tx_udp_session_disarm(s_tx_udp_commit_token);
-  return true;
-}
-
-static bool tx_udp_process_payload(const uint8_t *packet,
-                                   uint32_t packet_bytes,
-                                   uint32_t peer_ipv4,
-                                   uint32_t *ack_token,
-                                   uint32_t *ack_batch_id) {
-  *ack_token = 0u;
-  *ack_batch_id = 0u;
-  if (packet_bytes < sizeof(iq_tx_udp_header_t)) {
-    ++s_tx_udp_errors;
-    return false;
-  }
-  iq_tx_udp_header_t header;
-  memcpy(&header, packet, sizeof(header));
-  uint32_t header_crc = esp_rom_crc32_le(
-      0u, packet, offsetof(iq_tx_udp_header_t, header_crc32));
-  bool packed20 = (header.flags & IQ_TX_UDP_FLAG_PACKED20) != 0u;
-  bool packed16 = (header.flags & IQ_TX_UDP_FLAG_PACKED16) != 0u;
-  uint32_t words_per_datagram = packed16
-                                    ? TX_UDP_PACKED16_WORDS_PER_DATAGRAM
-                                : packed20
-                                    ? TX_UDP_PACKED20_WORDS_PER_DATAGRAM
-                                    : TX_UDP_WORDS_PER_DATAGRAM;
-  uint32_t payload_bytes = packed16
-                               ? (uint32_t)header.sample_count * 2u
-                           : packed20
-                               ? ((uint32_t)header.sample_count * 5u + 1u) / 2u
-                               : (uint32_t)header.sample_count * sizeof(uint32_t);
-  bool reset = (header.flags & IQ_TX_UDP_FLAG_RESET) != 0u;
-  bool commit = (header.flags & IQ_TX_UDP_FLAG_COMMIT) != 0u;
-  uint32_t rate_code =
-      (header.flags & IQ_TX_UDP_RATE_CODE_M) >> IQ_TX_UDP_RATE_CODE_S;
-  bool rate_valid = rate_code <= 3u ||
-                    (rate_code >= 7u && rate_code <= 14u);
-  if (memcmp(header.magic, IQ_TX_UDP_MAGIC, 4u) != 0 ||
-      header.version != IQ_TX_UDP_VERSION ||
-      header.header_bytes != sizeof(header) ||
-      header.header_crc32 != header_crc || header.sample_count == 0u ||
-      (packed16 && packed20) ||
-      (header.flags & ~IQ_TX_UDP_FLAGS_ALLOWED) != 0u ||
-      ((header.flags & IQ_TX_UDP_FLAG_AUTOSTART) != 0u && !commit) ||
-      ((header.flags & IQ_TX_UDP_FLAG_AUTOSTART) != 0u && !rate_valid) ||
-      ((packed20 || packed16) &&
-       (header.flags & IQ_TX_UDP_FLAG_AUTOSTART) != 0u &&
-       rate_code >= 14u) ||
-      ((header.flags & IQ_TX_UDP_FLAG_AUTOSTART) == 0u &&
-       (header.flags & (IQ_TX_UDP_RATE_CODE_M |
-                        IQ_TX_UDP_FLAG_MORE |
-                        IQ_TX_UDP_FLAG_CONTINUE)) != 0u) ||
-      payload_bytes > IQ_UDP_FRAGMENT_PAYLOAD_BYTES ||
-      packet_bytes != sizeof(header) + payload_bytes ||
-      header.sample_offset % words_per_datagram != 0u ||
-      header.datagram_sequence !=
-          header.sample_offset / words_per_datagram ||
-      (!commit && header.sample_count != words_per_datagram)) {
-    ++s_tx_udp_errors;
-    return false;
-  }
-  if (!tx_udp_session_valid(peer_ipv4, header.session_token)) {
-    ++s_tx_udp_stale_datagrams;
-    return false;
-  }
-  if (packed20 != s_tx_udp_session_packed20 ||
-      packed16 != s_tx_udp_session_packed16 ||
-      header.sample_count > s_tx_udp_session_max_words ||
-      header.sample_offset >
-          s_tx_udp_session_max_words - header.sample_count) {
-    ++s_tx_udp_errors;
-    return false;
-  }
-  bool ack_requested =
-      (header.flags & IQ_TX_UDP_FLAG_ACK_REQUEST) != 0u;
-  *ack_token = header.session_token;
-  *ack_batch_id = header.batch_id;
-  const uint8_t *payload = packet + sizeof(header);
-  if (header.payload_crc32 != 0u &&
-      header.payload_crc32 != esp_rom_crc32_le(0u, payload, payload_bytes)) {
-    ++s_tx_udp_errors;
-    return ack_requested;
-  }
-  if (reset) {
-    if (s_tx_udp_batch == NULL || header.datagram_sequence != 0u) {
-      ++s_tx_udp_errors;
-      return ack_requested;
-    }
-    memset(s_tx_udp_received_bitmap, 0, sizeof(s_tx_udp_received_bitmap));
-    s_tx_udp_batch_id = header.batch_id;
-    s_tx_udp_received_words = 0u;
-    s_tx_udp_committed_words = 0u;
-    s_tx_udp_expected_sequence = 0u;
-    s_tx_udp_final_sequence = 0u;
-    s_tx_udp_total_words = 0u;
-    s_tx_udp_commit_token = 0u;
-    s_tx_udp_commit_flags = 0u;
-    s_tx_udp_commit_pending = false;
-    s_tx_udp_packed20 = packed20;
-    s_tx_udp_packed16 = packed16;
-    s_tx_udp_expanded_compact = false;
-    s_tx_udp_compact_base_bytes = 0u;
-#if !CONFIG_IDF_TARGET_ESP32S31
-    if (packed20 || packed16) {
-      /* Other targets expand in place and therefore keep the compact source
-       * above the 32-bit destination to avoid overwriting unread bytes. */
-      const size_t compact_bytes = packed16
-                                       ? (size_t)s_tx_udp_session_max_words * 2u
-                                       : ((size_t)s_tx_udp_session_max_words *
-                                              5u +
-                                          1u) /
-                                             2u;
-      s_tx_udp_compact_base_bytes =
-          s_tx_udp_session_max_words * sizeof(*s_tx_udp_batch) - compact_bytes;
-    }
-#endif
-  }
-  if (s_tx_udp_batch == NULL || header.batch_id != s_tx_udp_batch_id ||
-      packed20 != s_tx_udp_packed20 ||
-      packed16 != s_tx_udp_packed16 ||
-      header.datagram_sequence >= TX_UDP_DATAGRAMS_MAX ||
-      (s_tx_udp_commit_pending &&
-       header.datagram_sequence > s_tx_udp_final_sequence)) {
-    ++s_tx_udp_errors;
-    return ack_requested;
-  }
-  if (tx_udp_bitmap_test(header.datagram_sequence)) {
-    /* Do not short-circuit the state transition when the packet also asks
-     * for an ACK. A lossless final datagram normally carries ACK_REQUEST;
-     * skipping try_commit() there left the complete batch armed forever. */
-    bool committed = tx_udp_try_commit();
-    return ack_requested || committed;
-  }
-  /* The replay engine consumes only the packed low 20 bits.  Scanning all
-   * 350 words here costs a full extra pass over every high-rate datagram; the
-   * authenticated host packer already guarantees the IQ10 representation. */
-  if (packed16) {
-    memcpy((uint8_t *)s_tx_udp_batch + s_tx_udp_compact_base_bytes +
-               header.sample_offset * 2u,
-           payload, payload_bytes);
-  } else if (packed20) {
-    memcpy((uint8_t *)s_tx_udp_batch + s_tx_udp_compact_base_bytes +
-               header.sample_offset * 5u / 2u,
-           payload, payload_bytes);
-  } else {
-  memcpy(s_tx_udp_batch + header.sample_offset, payload, payload_bytes);
-  }
-  tx_udp_bitmap_set(header.datagram_sequence);
-  ++s_tx_udp_datagrams;
-  s_tx_udp_bytes += payload_bytes;
-  if (commit) {
-    s_tx_udp_final_sequence = header.datagram_sequence;
-    s_tx_udp_total_words = header.sample_offset + header.sample_count;
-    s_tx_udp_commit_token = header.session_token;
-    s_tx_udp_commit_flags = header.flags;
-    s_tx_udp_commit_pending = true;
-  }
-  while (s_tx_udp_expected_sequence < TX_UDP_DATAGRAMS_MAX &&
-         tx_udp_bitmap_test(s_tx_udp_expected_sequence)) {
-    uint32_t words = s_tx_udp_packed16
-                         ? TX_UDP_PACKED16_WORDS_PER_DATAGRAM
-                     : s_tx_udp_packed20
-                         ? TX_UDP_PACKED20_WORDS_PER_DATAGRAM
-                         : TX_UDP_WORDS_PER_DATAGRAM;
-    if (s_tx_udp_commit_pending &&
-        s_tx_udp_expected_sequence == s_tx_udp_final_sequence) {
-      words = s_tx_udp_total_words -
-              s_tx_udp_expected_sequence * words;
-    }
-    s_tx_udp_received_words += words;
-    ++s_tx_udp_expected_sequence;
-    if (s_tx_udp_commit_pending &&
-        s_tx_udp_expected_sequence > s_tx_udp_final_sequence) {
-      break;
-    }
-  }
-  bool committed = tx_udp_try_commit();
-  return ack_requested || committed;
-}
-
-static uint16_t load_be16(const uint8_t *bytes) {
-  return ((uint16_t)bytes[0] << 8) | bytes[1];
-}
-
-static void tx_udp_send_ack(const uint8_t peer_mac[6], uint32_t peer_ipv4,
-                            uint16_t peer_port, uint32_t session_token,
-                            uint32_t batch_id) {
-  iq_tx_udp_ack_t ack = {
-      .magic = {'I', 'Q', 'A', '1'},
-      .version = IQ_TX_UDP_VERSION,
-      .header_bytes = sizeof(iq_tx_udp_ack_t),
-      .session_token = session_token,
-      .batch_id = batch_id,
-      .next_sequence = s_tx_udp_expected_sequence,
-      .received_words = s_tx_udp_received_words,
-      .committed_words = s_tx_udp_committed_words,
-      /* The ACK/arm transaction counter combines disjoint status counters so
-       * the host detects either malformed input or a terminal handoff. */
-      .error_count = s_tx_udp_errors + s_tx_udp_commit_rejections,
-      .commit_count = s_tx_udp_commits,
-  };
-  ack.header_crc32 = esp_rom_crc32_le(
-      0u, (const uint8_t *)&ack,
-      offsetof(iq_tx_udp_ack_t, header_crc32));
-
-  uint8_t frame[ETH_HEADER_BYTES + IPV4_HEADER_BYTES + UDP_HEADER_BYTES +
-                sizeof(iq_tx_udp_ack_t)] = {0};
-  memcpy(frame, peer_mac, 6u);
-  memcpy(frame + 6u, s_source_mac, 6u);
-  frame[12] = 0x08u;
-  frame[13] = 0x00u;
-  uint8_t *ip = frame + ETH_HEADER_BYTES;
-  ip[0] = 0x45u;
-  uint16_t ip_bytes = htons(IPV4_HEADER_BYTES + UDP_HEADER_BYTES +
-                            sizeof(iq_tx_udp_ack_t));
-  memcpy(ip + 2u, &ip_bytes, sizeof(ip_bytes));
-  uint16_t identification = htons((uint16_t)batch_id);
-  memcpy(ip + 4u, &identification, sizeof(identification));
-  ip[6] = 0x40u;
-  ip[8] = 64u;
-  ip[9] = IPPROTO_UDP;
-  memcpy(ip + 12u, &s_ipv4_address, sizeof(s_ipv4_address));
-  memcpy(ip + 16u, &peer_ipv4, sizeof(peer_ipv4));
-  uint16_t ip_checksum = htons(ipv4_checksum(ip));
-  memcpy(ip + 10u, &ip_checksum, sizeof(ip_checksum));
-  uint8_t *udp = ip + IPV4_HEADER_BYTES;
-  uint16_t source_port = htons(IQ_NETWORK_TX_UDP_PORT);
-  uint16_t destination_port = htons(peer_port);
-  uint16_t udp_bytes = htons(UDP_HEADER_BYTES + sizeof(iq_tx_udp_ack_t));
-  memcpy(udp, &source_port, sizeof(source_port));
-  memcpy(udp + 2u, &destination_port, sizeof(destination_port));
-  memcpy(udp + 4u, &udp_bytes, sizeof(udp_bytes));
-  memcpy(udp + UDP_HEADER_BYTES, &ack, sizeof(ack));
-  if (esp_eth_transmit(s_eth_handle, frame, sizeof(frame)) != ESP_OK) {
-    ESP_LOGW(TAG, "TX UDP ACK transmit failed");
-  }
-}
-
-uint8_t *__real_emac_esp_dma_alloc_recv_buf(
-    emac_esp_dma_handle_t emac_dma, uint32_t *size);
-
-static bool tx_udp_direct_frame_candidate(const uint8_t *frame,
-                                          uint32_t length) {
-  if (length < ETH_HEADER_BYTES + IPV4_HEADER_BYTES ||
-      load_be16(frame + 12u) != 0x0800u) {
-    return false;
-  }
-  const uint8_t *ip = frame + ETH_HEADER_BYTES;
-  uint32_t ip_header_bytes = (uint32_t)(ip[0] & 0x0fu) * 4u;
-  uint32_t ip_total_bytes = load_be16(ip + 2u);
-  if ((ip[0] >> 4u) != 4u || ip_header_bytes < IPV4_HEADER_BYTES ||
-      ip_header_bytes + UDP_HEADER_BYTES > ip_total_bytes ||
-      ip_total_bytes > length - ETH_HEADER_BYTES ||
-      ip[9] != IPPROTO_UDP ||
-      (load_be16(ip + 6u) & 0x3fffu) != 0u) {
-    return false;
-  }
-  const uint8_t *udp = ip + ip_header_bytes;
-  uint32_t udp_bytes = load_be16(udp + 4u);
-  return load_be16(udp + 2u) == IQ_NETWORK_TX_UDP_PORT &&
-         udp_bytes >= UDP_HEADER_BYTES &&
-         udp_bytes <= ip_total_bytes - ip_header_bytes;
-}
-
-static void tx_udp_process_direct_frame(const uint8_t *frame) {
-  const uint8_t *ip = frame + ETH_HEADER_BYTES;
-  uint32_t ip_header_bytes = (uint32_t)(ip[0] & 0x0fu) * 4u;
-  const uint8_t *udp = ip + ip_header_bytes;
-  uint32_t udp_bytes = load_be16(udp + 4u);
-  uint32_t peer_ipv4;
-  memcpy(&peer_ipv4, ip + 12u, sizeof(peer_ipv4));
-  uint32_t ack_token;
-  uint32_t ack_batch_id;
-  bool send_ack = tx_udp_process_payload(
-      udp + UDP_HEADER_BYTES, udp_bytes - UDP_HEADER_BYTES, peer_ipv4,
-      &ack_token, &ack_batch_id);
-  if (send_ack) {
-    tx_udp_send_ack(frame + 6u, peer_ipv4, load_be16(udp), ack_token,
-                    ack_batch_id);
-  }
-}
-
-uint8_t *__wrap_emac_esp_dma_alloc_recv_buf(
-    emac_esp_dma_handle_t emac_dma_handle, uint32_t *size) {
-  iq_emac_dma_prefix_t *emac_dma =
-      (iq_emac_dma_prefix_t *)emac_dma_handle;
-  /* S31's EMAC descriptors and buffers live in coherent internal DMA RAM.
-   * The IDF driver's DMA_CACHE_{INVALIDATE,WB} macros intentionally compile
-   * to no-ops on this target; esp_cache_msync() rejects this address class. */
-  uint32_t drained = 0u;
-  while (drained < CONFIG_ETH_DMA_RX_BUFFER_NUM) {
-    eth_dma_rx_descriptor_t *descriptor = emac_dma->rx_desc;
-    bool cpu_owned = descriptor != NULL &&
-                     descriptor->RDES0.Own == EMAC_LL_DMADESC_OWNER_CPU;
-    if (!cpu_owned) {
-      break;
-    }
-    bool single_desc = descriptor->RDES0.FirstDescriptor &&
-                       descriptor->RDES0.LastDescriptor &&
-                       !descriptor->RDES0.ErrSummary &&
-                       descriptor->RDES0.FrameLength >= 4u;
-    if (!single_desc) {
-      break;
-    }
-    uint32_t frame_length = descriptor->RDES0.FrameLength - 4u;
-    uint8_t *frame = (uint8_t *)(uintptr_t)descriptor->Buffer1Addr;
-    if (frame_length > *size ||
-        !tx_udp_direct_frame_candidate(frame, frame_length)) {
-      break;
-    }
-    const uint32_t process_start_cycle = esp_cpu_get_cycle_count();
-    tx_udp_process_direct_frame(frame);
-    emac_dma->rx_desc = (eth_dma_rx_descriptor_t *)(uintptr_t)
-        descriptor->Buffer2NextDescAddr;
-    descriptor->RDES0.Own = EMAC_LL_DMADESC_OWNER_DMA;
-    uint32_t process_cycles =
-        esp_cpu_get_cycle_count() - process_start_cycle;
-    ++s_tx_udp_direct_frames;
-    s_tx_udp_direct_total_cycles += process_cycles;
-    if (process_cycles > s_tx_udp_direct_max_cycles) {
-      s_tx_udp_direct_max_cycles = process_cycles;
-    }
-    ++drained;
-  }
-  if (drained != 0u) {
-    emac_hal_receive_poll_demand(&emac_dma->hal);
-  }
-  return __real_emac_esp_dma_alloc_recv_buf(emac_dma_handle, size);
-}
-
-/* Bypass lwIP only for the token-gated TX-IQ port.  The EMAC driver verifies
- * the Ethernet FCS; the application always checks its header CRC, optionally
- * checks a payload CRC, and binds every datagram to the HTTP peer's address. */
-static esp_err_t iq_eth_input(esp_eth_handle_t eth_handle, uint8_t *buffer,
+static esp_err_t iq_eth_input(esp_eth_handle_t handle, uint8_t *buffer,
                               uint32_t length, void *priv, void *info) {
-  (void)eth_handle;
-  (void)info;
-  if (buffer != NULL && length >= ETH_HEADER_BYTES + IPV4_HEADER_BYTES &&
-      load_be16(buffer + 12u) == 0x0800u) {
-    const uint8_t *ip = buffer + ETH_HEADER_BYTES;
-    uint32_t ip_header_bytes = (uint32_t)(ip[0] & 0x0fu) * 4u;
-    uint32_t ip_total_bytes = load_be16(ip + 2u);
-    if ((ip[0] >> 4) == 4u && ip_header_bytes >= IPV4_HEADER_BYTES &&
-        ip_header_bytes + UDP_HEADER_BYTES <= ip_total_bytes &&
-        ip_total_bytes <= length - ETH_HEADER_BYTES && ip[9] == IPPROTO_UDP &&
-        (load_be16(ip + 6u) & 0x3fffu) == 0u) {
-      const uint8_t *udp = ip + ip_header_bytes;
-      uint32_t udp_bytes = load_be16(udp + 4u);
-      if (load_be16(udp + 2u) == IQ_NETWORK_TX_UDP_PORT) {
-        if (udp_bytes < UDP_HEADER_BYTES ||
-            udp_bytes > ip_total_bytes - ip_header_bytes) {
-          ++s_tx_udp_errors;
-        } else {
-          uint32_t peer_ipv4;
-          memcpy(&peer_ipv4, ip + 12u, sizeof(peer_ipv4));
-          uint32_t ack_token;
-          uint32_t ack_batch_id;
-          bool send_ack = tx_udp_process_payload(
-              udp + UDP_HEADER_BYTES, udp_bytes - UDP_HEADER_BYTES, peer_ipv4,
-              &ack_token, &ack_batch_id);
-          if (send_ack) {
-            tx_udp_send_ack(buffer + 6u, peer_ipv4, load_be16(udp),
-                            ack_token, ack_batch_id);
-          }
-        }
-        free(buffer);
-        return ESP_OK;
-      }
-    }
-  }
+  (void)handle; (void)info;
   return esp_netif_receive((esp_netif_t *)priv, buffer, length, NULL);
 }
 
@@ -1332,19 +479,6 @@ int iq_control_build_status_json(char *text, size_t cap) {
   const char *owner_name = owner == IQ_STREAM_OWNER_ETH   ? "ethernet"
                            : owner == IQ_STREAM_OWNER_USB ? "usb"
                                                           : "none";
-  uint32_t usb_tx_uploads = 0u;
-  uint32_t usb_tx_bytes = 0u;
-  uint32_t usb_tx_errors = 0u;
-  uint32_t usb_tx_backpressure_retries = 0u;
-  uint32_t usb_tx_commit_rejections = 0u;
-  uint32_t usb_tx_received_words = 0u;
-  bool usb_tx_active = false;
-  iq_usb_tx_diag(&usb_tx_uploads, &usb_tx_bytes, &usb_tx_errors,
-                 &usb_tx_backpressure_retries,
-                 &usb_tx_commit_rejections,
-                 &usb_tx_received_words, &usb_tx_active);
-  iq_tx_replay_diag_t tx_replay = {0};
-  s_callbacks.get_tx_replay_diag(&tx_replay);
   const uint64_t hardware_time_ns =
       (uint64_t)esp_timer_get_time() * 1000u;
   int n = snprintf(
@@ -1357,40 +491,15 @@ int iq_control_build_status_json(char *text, size_t cap) {
       "\"usb_frames\":%" PRIu32 ",\"usb_send_errors\":%" PRIu32
       ",\"usb_stream_format\":%" PRIu32
       ",\"stream_format\":%" PRIu32
-      ",\"usb_tx_uploads\":%" PRIu32
-      ",\"usb_tx_errors\":%" PRIu32
-      ",\"usb_tx_backpressure_retries\":%" PRIu32
-      ",\"usb_tx_commit_rejections\":%" PRIu32
       ","
       "\"config_applying\":%s,\"stream_epoch\":%" PRIu32
       ",\"reset_reason\":%u"
       ",\"hardware_time_ns\":%" PRIu64
       ",\"udp_frames\":%" PRIu32 ",\"udp_datagrams\":%" PRIu32
       ",\"udp_bytes\":%" PRIu32 ",\"udp_send_errors\":%" PRIu32
-      ",\"tx_udp_datagrams\":%" PRIu32 ",\"tx_udp_bytes\":%" PRIu32
-      ",\"tx_udp_errors\":%" PRIu32
-      ",\"tx_udp_stale_datagrams\":%" PRIu32
-      ",\"tx_udp_backpressure_retries\":%" PRIu32
-      ",\"tx_udp_commit_rejections\":%" PRIu32
-      ",\"tx_udp_commits\":%" PRIu32 ",\"tx_udp_armed\":%s"
-      ",\"tx_replay\":{\"words\":%" PRIu32
-      ",\"rate_code\":%" PRIu32 ",\"segments\":%" PRIu32
-      ",\"total_cycles\":%" PRIu32 ",\"sample_cycles\":%" PRIu32
-      ",\"gap_cycles\":%" PRIu32
-      ",\"maximum_gap_cycles\":%" PRIu32
-      ",\"tcm_stage_copy_max_cycles\":%" PRIu32
-      ",\"deadline_late_max_cycles\":%" PRIu32
-      ",\"deadline_late_max_word\":%" PRIu32
-      ",\"requested_start_time_ns\":%" PRIu64
-      ",\"actual_start_time_ns\":%" PRIu64
-      ",\"start_error_ns\":%" PRId64
-      ",\"queue_underflow\":%s"
-      ",\"deadline_missed\":%s}"
       ",\"firmware_dropped_chunks\":%" PRIu32
       ",\"source_chunk_index\":%" PRIu32 ",\"dcoc_diag\":%" PRIu32
       ",\"dc_offset_automatic\":%s,\"dcoc_active\":%s"
-      ",\"software_agc\":{\"active\":%s,\"current_gain\":%" PRIu32
-      ",\"last_robust_peak\":%" PRIu32 ",\"gain_changes\":%" PRIu32 "}"
       ",\"adc_dump_cfg\":%" PRIu32 ",\"adc_dump_mode\":%" PRIu32 ","
       "\"manual_rx_gain\":{\"unit\":\"dB\",\"minimum\":%u,"
       "\"maximum\":%u,\"step\":%u}}",
@@ -1399,31 +508,14 @@ int iq_control_build_status_json(char *text, size_t cap) {
       owner_name,
       iq_usb_mounted() ? "true" : "false", iq_usb_frames(),
       iq_usb_send_errors(), iq_usb_stream_format(), iq_network_stream_format(),
-      usb_tx_uploads, usb_tx_errors,
-      usb_tx_backpressure_retries, usb_tx_commit_rejections,
       s_callbacks.is_config_applying() ? "true" : "false", s_stream_epoch,
       (unsigned)esp_reset_reason(),
       hardware_time_ns,
       s_udp_frames, s_udp_datagrams, s_udp_bytes, s_udp_send_errors,
-      s_tx_udp_datagrams, s_tx_udp_bytes, s_tx_udp_errors,
-      s_tx_udp_stale_datagrams,
-      s_tx_udp_backpressure_retries,
-      s_tx_udp_commit_rejections, s_tx_udp_commits,
-      tx_udp_session_armed() ? "true" : "false",
-      tx_replay.words, tx_replay.rate_code, tx_replay.segments,
-      tx_replay.total_cycles, tx_replay.sample_cycles, tx_replay.gap_cycles,
-      tx_replay.maximum_gap_cycles, tx_replay.tcm_stage_copy_max_cycles,
-      tx_replay.deadline_late_max_cycles, tx_replay.deadline_late_max_word,
-      tx_replay.requested_start_time_ns,
-      tx_replay.actual_start_time_ns, tx_replay.start_error_ns,
-      tx_replay.queue_underflow ? "true" : "false",
-      tx_replay.deadline_missed ? "true" : "false",
       s_callbacks.get_firmware_dropped_chunks(),
       s_callbacks.get_source_chunk_index(), s_callbacks.get_dcoc_diag(),
       config.dc_offset.automatic != 0u ? "true" : "false",
       s_callbacks.get_dcoc_active() ? "true" : "false",
-      sdr_agc_active() ? "true" : "false", sdr_agc_current_gain(),
-      sdr_agc_last_peak(), sdr_agc_gain_changes(),
       s_callbacks.get_adc_dump_cfg(), s_callbacks.get_adc_dump_mode(),
       RX_GAIN_MIN_DB, gain_max, RX_GAIN_STEP_DB);
   return (n > 0 && (size_t)n < cap) ? n : -1;
@@ -1613,7 +705,7 @@ static void start_http_server(void) {
    * priority-24 producer is continuously runnable, so an unpinned HTTP task
    * can accept a TCP connection yet never execute its handler. */
   config.core_id = 0;
-  config.max_uri_handlers = 9;
+  config.max_uri_handlers = 7;
   ESP_ERROR_CHECK(httpd_start(&s_http_server, &config));
   const httpd_uri_t handlers[] = {
       {.uri = "/", .method = HTTP_GET, .handler = index_handler},
@@ -1629,12 +721,6 @@ static void start_http_server(void) {
       {.uri = "/api/v1/config",
        .method = HTTP_PUT,
        .handler = config_put_handler},
-      {.uri = "/api/v1/tx/waveform",
-       .method = HTTP_PUT,
-       .handler = tx_waveform_put_handler},
-      {.uri = "/api/v1/tx/udp/arm",
-       .method = HTTP_POST,
-       .handler = tx_udp_arm_handler},
       {.uri = "/api/v1/stream/start",
        .method = HTTP_POST,
        .handler = stream_start_handler},
@@ -1681,29 +767,6 @@ static void got_ip_handler(void *arg, esp_event_base_t base, int32_t id,
   start_http_server();
 }
 
-static void ethernet_resume_task(void *arg) {
-  (void)arg;
-  while (true) {
-    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    vTaskDelay(pdMS_TO_TICKS(100));
-    if (!__atomic_exchange_n(&s_ethernet_resume_pending, false,
-                             __ATOMIC_ACQ_REL)) {
-      continue;
-    }
-    esp_err_t err = esp_eth_start(s_eth_handle);
-    if (err == ESP_OK) {
-      __atomic_store_n(&s_ethernet_suspended_for_usb_tx, false,
-                       __ATOMIC_RELEASE);
-      ESP_LOGI(TAG, "Ethernet resumed after native USB TX");
-    } else {
-      ESP_LOGW(TAG, "could not resume Ethernet after USB TX: %s",
-               esp_err_to_name(err));
-      __atomic_store_n(&s_ethernet_resume_pending, true, __ATOMIC_RELEASE);
-      xTaskNotifyGive(s_ethernet_resume_task_handle);
-    }
-  }
-}
-
 void iq_control_init(const iq_network_callbacks_t *callbacks) {
   s_callbacks = *callbacks;
   s_stream_epoch = esp_random();
@@ -1743,75 +806,8 @@ void iq_network_init(const iq_network_callbacks_t *callbacks) {
   ESP_ERROR_CHECK(mdns_instance_name_set("ESP-SDR"));
   ESP_ERROR_CHECK(mdns_service_add("ESP-SDR HTTP", "_http", "_tcp",
                                    IQ_NETWORK_HTTP_PORT, NULL, 0));
-  ESP_ERROR_CHECK(
-      xTaskCreatePinnedToCoreWithCaps(
-          ethernet_resume_task, "eth_usb_resume", 3072, NULL, 4,
-          &s_ethernet_resume_task_handle, 0,
-          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS
-          ? ESP_OK
-          : ESP_ERR_NO_MEM);
   ESP_ERROR_CHECK(esp_eth_start(s_eth_handle));
   ESP_LOGI(TAG, "Ethernet started; waiting for link and DHCP");
-}
-
-void iq_network_suspend_for_usb_tx(void) {
-  __atomic_store_n(&s_ethernet_resume_pending, false, __ATOMIC_RELEASE);
-  if (s_eth_handle == NULL ||
-      __atomic_load_n(&s_ethernet_suspended_for_usb_tx, __ATOMIC_ACQUIRE)) {
-    return;
-  }
-  esp_err_t err = esp_eth_stop(s_eth_handle);
-  if (err == ESP_OK) {
-    __atomic_store_n(&s_ethernet_suspended_for_usb_tx, true,
-                     __ATOMIC_RELEASE);
-    ESP_LOGI(TAG, "Ethernet paused for native USB TX");
-  } else {
-    ESP_LOGW(TAG, "could not pause Ethernet for USB TX: %s",
-             esp_err_to_name(err));
-  }
-}
-
-uint32_t iq_network_usb_tx_stage_buffers(uint32_t **buffers,
-                                         uint32_t max_buffers,
-                                         uint32_t *words_per_buffer) {
-  if (buffers == NULL || words_per_buffer == NULL || max_buffers == 0u ||
-      s_eth_handle == NULL ||
-      !__atomic_load_n(&s_ethernet_suspended_for_usb_tx, __ATOMIC_ACQUIRE)) {
-    return 0u;
-  }
-  /* The private prefixes above intentionally mirror this repository's pinned
-   * ESP-IDF version. esp_eth_stop() has quiesced DMA here, so exposing the RX
-   * buffer addresses cannot race the EMAC receive task. esp_eth_start() later
-   * rebuilds descriptor ownership before accepting frames. */
-  iq_eth_driver_prefix_t *driver = (iq_eth_driver_prefix_t *)s_eth_handle;
-  iq_emac_mac_prefix_t *mac = (iq_emac_mac_prefix_t *)driver->mac;
-  iq_emac_dma_prefix_t *dma = mac != NULL ? mac->emac_dma_hndl : NULL;
-  if (dma == NULL) {
-    return 0u;
-  }
-  uint32_t count = CONFIG_ETH_DMA_RX_BUFFER_NUM;
-  if (count > max_buffers) {
-    count = max_buffers;
-  }
-  for (uint32_t i = 0u; i < count; ++i) {
-    if (dma->rx_buf[i] == NULL) {
-      return 0u;
-    }
-    buffers[i] = (uint32_t *)dma->rx_buf[i];
-  }
-  *words_per_buffer = CONFIG_ETH_DMA_BUFFER_SIZE / sizeof(uint32_t);
-  return count;
-}
-
-void iq_network_resume_after_usb_tx(void) {
-  if (s_eth_handle == NULL ||
-      !__atomic_load_n(&s_ethernet_suspended_for_usb_tx, __ATOMIC_ACQUIRE)) {
-    return;
-  }
-  __atomic_store_n(&s_ethernet_resume_pending, true, __ATOMIC_RELEASE);
-  if (s_ethernet_resume_task_handle != NULL) {
-    xTaskNotifyGive(s_ethernet_resume_task_handle);
-  }
 }
 
 bool iq_network_stream_armed(void) { return s_stream_armed; }

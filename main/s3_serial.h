@@ -12,4 +12,3 @@ int s3_serial_poll_line(char *line, size_t capacity);
 s3_serial_port_t s3_serial_port(void);
 unsigned s3_serial_baud(void);
 bool s3_serial_send(const void *data, size_t size);
-bool s3_serial_receive(void *data, size_t size);
