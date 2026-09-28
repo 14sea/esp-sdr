@@ -1,12 +1,13 @@
 # ESP-SDR firmware
 
-Direct I/Q receive-only firmware for ESP32 chips. The C5/C6/C61/S3 backends
+Direct I/Q receive-only firmware for ESP32 chips. The original ESP32 and C5/C6/C61/S3 backends
 run without a display, status LED, buttons, or board-revision configuration.
 They use internal RAM and require no PSRAM. Only the selected transport pins
 are used. The browser viewer and installer live in [esp-web-sdr](../esp-web-sdr/README.md).
 
 | Chip | Transport | Requirements / status |
 | --- | --- | --- |
+| ESP32 | UART0 only (GPIO1 TX / GPIO3 RX, 2 MBaud) | At least 2 MB flash; 2412–2472 MHz in 5 MHz steps; 80/40/16 MS/s snapshots |
 | ESP32-C5 | Native USB Serial/JTAG | Generic firmware; at least 2 MB flash |
 | ESP32-S3 | Native USB Serial/JTAG and optional UART0 | Generic firmware; at least 2 MB flash |
 | ESP32-S31 | Serial snapshots on native USB Serial/JTAG/UART0, plus Ethernet/native high-speed USB streaming | Requires the existing SDK, memory and transport hardware configuration |
@@ -18,7 +19,7 @@ backend. Other ESP32 models are not supported simply by selecting their IDF
 target. C5/C6/C61/S3 snapshots have capture gaps; RF sample rate is not sustained serial
 throughput. Gain and power measurements are uncalibrated.
 
-## Build C5, C6, C61 or S3
+## Build ESP32, C5, C6, C61 or S3
 
 Activate a compatible ESP-IDF environment, then choose the chip explicitly and
 use a separate build directory/configuration:
@@ -30,10 +31,11 @@ idf.py -B build-s3 -DIDF_TARGET=esp32s3 \
 idf.py -B build-s3 -p /dev/ttyACM0 flash
 ```
 
+For the original ESP32, use `esp32` as the target and `sdkconfig.defaults.esp32`.
 For C5, C6 or C61, substitute `c5` / `esp32c5`, `c6` / `esp32c6` or `c61` / `esp32c61` in the paths and target above. The standard
 `idf.py set-target esp32s3` workflow also loads the target-specific defaults;
 shared defaults do not enable another chip’s memory or peripherals. No PHY
-submodules are needed for these four backends. All four defaults use a 2 MB flash
+submodules are needed for these five backends. All five defaults use a 2 MB flash
 layout with a single application partition. These images also work on larger
 flash devices, using only that layout; they do not resize partitions to consume
 the extra flash. For a different layout, use a separate build configuration and

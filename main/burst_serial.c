@@ -8,7 +8,10 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "soc/soc_caps.h"
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
 #include "hal/usb_serial_jtag_ll.h"
+#endif
 #include "sdkconfig.h"
 
 #ifndef CONFIG_ESP_SDR_UART_BAUD
@@ -59,7 +62,11 @@ static int read_port(burst_serial_port_t port, void *buffer, size_t size) {
         return 0;
 #endif
     }
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
     return usb_serial_jtag_ll_read_rxfifo(buffer, size > 64 ? 64 : size);
+#else
+    return 0;
+#endif
 }
 
 int burst_serial_poll_line(char *line, size_t capacity) {
@@ -119,17 +126,25 @@ bool IRAM_ATTR burst_serial_send(const void *data, size_t size) {
             if (sent < 0) return false;
             if (!sent) vTaskDelay(1);
         } else {
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
             if (!usb_serial_jtag_ll_txfifo_writable()) continue;
             sent = usb_serial_jtag_ll_write_txfifo(p, size > 64 ? 64 : size);
             usb_serial_jtag_ll_txfifo_flush();
+#else
+            return false;
+#endif
         }
         p += sent;
         size -= sent;
     }
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
     if (active_port == BURST_SERIAL_USB && original && original % 64 == 0) {
         while (!usb_serial_jtag_ll_txfifo_writable())
             if (esp_timer_get_time() >= deadline) return false;
         usb_serial_jtag_ll_txfifo_flush();
     }
+#else
+    (void)original;
+#endif
     return true;
 }

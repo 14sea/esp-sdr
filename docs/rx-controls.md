@@ -120,3 +120,60 @@ A receive-spectrum cross-check at 2412 and 2413 MHz found the strongest
 correlation at -26 FFT bins (2048-point FFT at 80 MS/s; expected -25.6 bins).
 This supports a real 1 MHz LO change rather than Wi-Fi channel rounding;
 it is an ambient-signal check, not an absolute frequency calibration.
+
+## Original ESP32
+
+The UART-only backend identifies as `ESP32SDR 6 burst 16380` and implements the
+same `SYNC`, `CAPS`, `LIMITS?`, `FREQ`, `GAIN`, `CAP16`, `CAP20`, `RXRUN`,
+`TRANSPORT?` and `RELEASE` protocol. Default gain is hardware AGC; the manual
+maximum comes from the calibrated PHY register (72 on the tested D0WD-V3).
+Tuning is limited to channels 1–13: 2412–2472 MHz in 5 MHz steps. The firmware
+advertises `bandwidth: [12,67,1,0]`; `BANDWIDTH 12` through `BANDWIDTH 67`
+select an approximate full analog passband width in MHz, and `BANDWIDTH 0`
+selects wide open. ESP-WebSDR discovers the range from the handshake.
+
+Native dump clocks are 80/40/16 MS/s, qualified by capture-duration slopes on
+an ESP32-D0WD-V3 rev. 3.1. External-tone frequency/phase calibration remains
+unqualified. Both signed IQ8 and packed IQ10 work with ESP-WebSDR. The 64 KiB
+SRAM aperture at 0x3ffe8000 is reserved from the heap, guarded against linker
+overlap, and uses DPORT MAC_DUMP_MODE=3; mode 2 only fills half the buffer.
+Capture checks include the unused tail, and packing happens in place. No PSRAM
+is required. UART delivery has gaps between snapshots.
+
+
+The original ESP32 uses BBTOP block 0x67, host 1, registers **1 and 2**,
+with a **seven-bit** capacitor code. This differs from S3/C6/C61. Bit 7 is
+preserved. The two calibrated register values are backed up before each
+capture and restored before transfer or retuning, including capture errors.
+`LPF AUTO` restores automatic PHY calibration behavior. Low-level `LPF`
+accepts codes 0–127; the web interface uses MHz, never these raw codes.
+
+The curve was measured on the connected ESP32-D0WD-V3 revision 3.1 at 2472 MHz,
+manual gain 72 and 80 MS/s, then cross-checked at 2412 MHz. Each code used 24
+16,380-sample IQ10 captures, seven 2048-point Hann-window FFTs per capture,
+median spectral power, 1 MHz bins and both spectral sides combined. Reference
+power was the median at ±2–5 MHz; the -3 dB crossing was interpolated between
+bins, then the full width rounded to MHz. All 624 captures passed CRC and
+register-restoration checks. See [measurement summary](esp32-bandwidth.csv).
+
+| Capacitor code | Approximate full bandwidth (MHz) |
+| --- | --- |
+| 8 | 67 |
+| 12 | 55 |
+| 16 | 48 |
+| 24 | 38 |
+| 32 | 32 |
+| 48 | 25 |
+| 64 | 20 |
+| 80 | 17 |
+| 96 | 15 |
+| 112 | 14 |
+| 127 | 12 |
+
+Code 0 (wide open) and code 4 did not reach the -3 dB crossing within the
+measured 80 MS/s span. They therefore have no invented MHz label; the numeric
+maximum uses code 8, while wide open explicitly selects code 0. The analog
+bandwidth does not imply alias-free reception at every selected sample rate.
+These are approximate noise-passband measurements on one board, not precision
+RF calibration. The initial registers 3/4 investigation did not change the
+captured passband; those registers are not written by this implementation.

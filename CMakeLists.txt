@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 # C5 uses the fixed USB Serial/JTAG controller and its own RF backend.
-if(IDF_TARGET STREQUAL "esp32c6" OR IDF_TARGET STREQUAL "esp32c5" OR IDF_TARGET STREQUAL "esp32c61" OR IDF_TARGET STREQUAL "esp32s3")
+if(IDF_TARGET STREQUAL "esp32" OR IDF_TARGET STREQUAL "esp32c6" OR IDF_TARGET STREQUAL "esp32c5" OR IDF_TARGET STREQUAL "esp32c61" OR IDF_TARGET STREQUAL "esp32s3")
     set(ENV{IDF_COMPONENT_MANAGER} "0")
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
     idf_build_set_property(MINIMAL_BUILD ON)
