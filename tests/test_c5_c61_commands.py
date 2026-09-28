@@ -29,12 +29,13 @@ class SharedCommands(unittest.TestCase):
 static unsigned frequency_mhz,captures,last_format,last_samples;
 static int rx_filter,rx_analog_filter;
 static bool rx_ready;
-static char response[128];
+static char response[256];
 static int burst_serial_port(void) { return 1; }
 static unsigned burst_serial_baud(void) { return 921600; }
 static void reply(const char *s) { snprintf(response,sizeof(response),"%s",s); }
 static bool gain_command(const char *s) { return false; }
-static bool limits_command(const char *s) { return false; }
+static unsigned gain_max(void) { return 84; }
+#include "burst_limits.h"
 static bool capture(unsigned n,unsigned d,unsigned f) { ++captures;last_samples=n;last_format=f;return true; }
 static void vTaskDelay(int ticks) {}
 static unsigned phy_chip_i2c_readReg(unsigned a,unsigned b,unsigned c) { return 4; }
@@ -54,6 +55,9 @@ int main(void) {
  command("INFO");assert(!strcmp(response,BURST_ID " 6 burst 16380\n"));
  command("CAPS");assert(strstr(response,"SERIALLEASE"));assert(strstr(response,"IQ8"));
  assert(!!strstr(response,"DUALSERIAL")==CONFIG_IDF_TARGET_ESP32C61);
+ command("LIMITS?");
+ assert(strstr(response,CONFIG_IDF_TARGET_ESP32C61?"[13,54,1,0]":"[11,23,1,0]"));
+ assert(strstr(response,"80000000,40000000,20000000,10000000,8000000,4000000"));
  command("SYNC 987654321");assert(!strcmp(response,"SYNC 987654321\n"));
  command("CAP16 16380 5");assert(captures==1 && last_samples==16380 && last_format==16);
  command("CAP20 257 0");assert(captures==2 && last_samples==257 && last_format==20);
@@ -74,8 +78,15 @@ int main(void) {
  command("BANDWIDTH 0");assert(rx_analog_filter==0);
  command("BANDWIDTH 12");assert(!strcmp(response,"ERR command\n"));
  command("BANDWIDTH 55");assert(!strcmp(response,"ERR command\n"));
- command("BANDWIDTH 21 junk");assert(!strcmp(response,"ERR command\n"));
+#else
+ command("BANDWIDTH 20");assert(!strcmp(response,"OK\n") && rx_analog_filter==12);
+ command("BANDWIDTH 11");assert(rx_analog_filter==60);
+ command("BANDWIDTH 23");assert(rx_analog_filter==0);
+ command("BANDWIDTH 0");assert(rx_analog_filter==0);
+ command("BANDWIDTH 10");assert(!strcmp(response,"ERR command\n"));
+ command("BANDWIDTH 24");assert(!strcmp(response,"ERR command\n"));
 #endif
+ command("BANDWIDTH 21 junk");assert(!strcmp(response,"ERR command\n"));
  command("RELEASE");assert(!strcmp(response,"OK\n"));
  return 0;
 }

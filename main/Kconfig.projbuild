@@ -1,6 +1,7 @@
 menu "ESP-SDR transport"
 
     config ESP_SDR_TRANSPORT_ETHERNET
+        depends on !IDF_TARGET_ESP32S31
         bool "Ethernet (HTTP control and UDP IQ)"
         default y
         help
@@ -8,8 +9,8 @@ menu "ESP-SDR transport"
             its IPv4 address through DHCP and advertises esp-sdr.local.
 
     config ESP_SDR_TRANSPORT_USB
+        depends on !IDF_TARGET_ESP32S31
         bool "USB (vendor control and bulk IQ)"
-        default y if IDF_TARGET_ESP32S31
         help
             Use the native high-speed USB-OTG device port with the
             vendor-specific ESP-SDR control and IQ protocol. Ethernet and USB
@@ -55,20 +56,5 @@ menu "ESP-SDR transport"
         default 17 if IDF_TARGET_ESP32C6
         default 10 if IDF_TARGET_ESP32C61
         default 44
-
-endmenu
-
-menu "ESP-SDR receiver"
-
-    config ESP_SDR_S31_CONTINUOUS_REAL_IF
-        bool "Lossless continuous S31 PARLIO receiver"
-        depends on IDF_TARGET_ESP32S31
-        default y
-        help
-            Capture the live modem diagnostic lanes with PARLIO without CPU
-            access to the modem-owned TCM dump aperture. The normal combined
-            Ethernet/USB image publishes native signed I/Q at 16 MS/s complex
-            on either transport. A USB-only compatibility build retains the
-            older 4 MS/s real-IF capture and 2 MS/s host conversion path.
 
 endmenu

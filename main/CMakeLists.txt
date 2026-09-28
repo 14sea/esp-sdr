@@ -5,6 +5,13 @@ endif()
 
 option(SAMPLE_RATE_PROBE "Build volatile hardware sample-rate diagnostics (never package)" OFF)
 
+if(IDF_TARGET STREQUAL "esp32s31")
+    idf_component_register(SRCS "s31_main.c" "burst_serial.c" "burst_gain_table.c"
+        REQUIRES esp_phy esp_wifi nvs_flash esp_timer esp_driver_usb_serial_jtag esp_driver_uart)
+    target_link_options(${COMPONENT_LIB} INTERFACE "-T${CMAKE_CURRENT_LIST_DIR}/s31_sram_guard.ld" "-Wl,--wrap=phy_write_gain_mem")
+    return()
+endif()
+
 if(IDF_TARGET STREQUAL "esp32")
     idf_component_register(SRCS "esp32_main.c" "burst_serial.c"
         REQUIRES esp_phy esp_wifi nvs_flash esp_timer esp_driver_uart)

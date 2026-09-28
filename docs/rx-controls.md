@@ -47,8 +47,8 @@ Calibration varies between chips, boards and operating conditions.
 
 C61's curve and BBTOP 4/5 register selection come from the known-good
 `sensor-firmware/main/iq/modem.c`, with CBW20. S31 retains its existing
-characterized 21 MHz anchor at code 28. C5 has no verified MHz curve and
-advertises `bandwidth: null`; the viewer leaves filtering automatic.
+characterized 21 MHz anchor at code 28. C5 advertises an approximate 11–23 MHz
+range from its own measurements; see the C5 section below.
 
 The S3 curve was measured on the connected S3 at 2300 MHz, manual index 75,
 80 MS/s: twelve 16,380-sample IQ8 captures per DAC code, seven 2048-point
@@ -64,8 +64,8 @@ C61/S3/S31 were exercised over their USB-to-UART bridges at 2 MBaud: handshake,
 hardware AGC, manual gain endpoints, rejection above the advertised maximum,
 retuning, sample payload CRCs and bandwidth endpoints. The browser's actual
 serial driver and UI were also driven through a serial test bridge to the boards.
-S31 snapshots use native IQ8 from PARLIO at 16/8/4 MS/s and only join contiguous
-source chunks. C5 has build/unit coverage; no connected C5 was available.
+S31 now uses standard ADC-dump snapshots at 80/40/20/10/8/4 MS/s with
+IQ8/IQ10; see [S31 capture details](s31-capture.md). C5 was also measured over native USB Serial/JTAG; see below.
 
 ## C6 profile
 
@@ -177,3 +177,50 @@ bandwidth does not imply alias-free reception at every selected sample rate.
 These are approximate noise-passband measurements on one board, not precision
 RF calibration. The initial registers 3/4 investigation did not change the
 captured passband; those registers are not written by this implementation.
+
+
+## C5 profile
+
+C5 advertises `bandwidth: [11,23,1,0]` and accepts `BANDWIDTH 11` through
+`BANDWIDTH 23` in MHz. ESP-WebSDR selects 20 MHz and 80 MS/s on connection.
+Zero selects the widest capacitor setting; `ALPF AUTO` retains PHY calibration.
+
+The curve was measured on ESP32-C5 revision 1.0 on 2026-09-28 at 2300 and
+5500 MHz, 80 MS/s IQ10, with the normal PHY digital filter. Sixteen 16,380-sample
+captures per code yielded 384 CRC-checked captures with no clipping. Manual
+gain was 84 on the lower band and 83 on the upper band. Each capture contributed
+seven 2048-point Hann-windowed FFTs; median power was grouped into 1 MHz bins.
+The reference was median power at ±2–5 MHz. Interpolated −3 dB crossings of
+the combined positive/negative noise spectrum gave the full widths in
+[c5-bandwidth.csv](c5-bandwidth.csv).
+
+| Capacitor code | Approximate full bandwidth (MHz) |
+| --- | --- |
+| 0 | 23 |
+| 4 | 22 |
+| 8 | 21 |
+| 12 | 20 |
+| 16 | 18 |
+| 24 | 16 |
+| 32 | 15 |
+| 40 | 13 |
+| 48 | 12 |
+| 60 | 11 |
+
+These are approximate receive-path noise widths, including the normal digital
+roll-off, rather than a precision specification of the isolated analog filter.
+The older swept-RF C5 investigation independently established the effect of
+the same BBTOP registers on both bands, but used a different digital setting.
+Board calibration and digital-filter overrides can change the effective width.
+
+C5 uses BBTOP block 0x67, host 1, registers 6/7, low six bits. Every capture
+preserves upper bits and restores the full calibrated bytes afterwards; readback
+was checked after every measured setting on both bands. Codes 60–63 provided
+little additional narrowing, so the numeric curve ends at code 60.
+
+The production image was flashed and verified on the same board. ESP-WebSDR
+was tested through a serial bridge in Chromium: visible 11–23 MHz control,
+20 MHz/80 MS/s defaults, both IQ precisions, all six capture rates, both RF
+bands, hardware/manual gain, wide-open mode and reconnect. Production checks
+also verified bandwidth bounds, payload CRCs, register restoration and rejection
+of diagnostic commands. The web flasher contains the same release artifact.

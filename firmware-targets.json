@@ -40,11 +40,11 @@
     {
       "id": "esp32s31",
       "target": "esp32s31",
-      "label": "ESP32-S31 Function-CoreBoard (16 MB, Octal PSRAM, Ethernet/USB)",
+      "label": "ESP32-S31 (2 MB or larger)",
       "idf_ref": "26dd2948925d44f41e3bb614fb044b7a0839a242",
-      "allow_larger_flash": false,
+      "allow_larger_flash": true,
       "preview": true,
-      "submodules": true
+      "submodules": false
     },
     {
       "id": "esp32c6",

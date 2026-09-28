@@ -20,10 +20,10 @@ Each profile artifact contains its manifest, image directory, `flash_args` and
 Flash-size detection is resolved to the concrete configured capacity. A new
 output folder is required to avoid mixing releases.
 
-Original ESP32 and C5/C6/C61/S3 profiles use a 2 MB layout, no PSRAM or board peripherals.
+Original ESP32 and C5/C6/C61/S3/S31 profiles use a 2 MB layout, no PSRAM or board peripherals.
 `--allow-larger-flash` advertises compatibility with larger physical flash.
-Omit it for profiles requiring an exact size. Hardware-specific profiles such
-as S31 retain their requirements in their labels and documentation.
+Omit it for profiles requiring an exact size. S31 now uses the same generic
+2 MB layout and no longer requires Octal PSRAM or Ethernet.
 
 ## Combined CI artifact
 
@@ -75,8 +75,7 @@ Firmware availability is independent of browser loader/viewer support. The
 website bundles esptool-js 0.7.0, which supports all current profiles,
 including S31. For command-line flashing use `<profile>/flash_command.txt`,
 replacing `PORT`. The S31 artifact retains `--no-stub` for SDK compatibility.
-All profiles expose the viewer's serial snapshot protocol; S31 also
-retains its Ethernet/vendor-USB streaming transports.
+All profiles, including S31, expose the viewer's serial snapshot protocol.
 
 The website and firmware workflows produce artifacts without publishing to a
 server. A later deployment job only needs to copy static website files and the

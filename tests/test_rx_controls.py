@@ -33,6 +33,10 @@ int main(void) {
 #if CONFIG_IDF_TARGET_ESP32
  assert(rx_bandwidth_dcap(48)==16);assert(rx_bandwidth_dcap(20)==64);
  assert(rx_bandwidth_dcap(32)==32);assert(rx_bandwidth_dcap(15)==96);
+#elif CONFIG_IDF_TARGET_ESP32C5
+ assert(RX_BANDWIDTH_MIN==11 && RX_BANDWIDTH_MAX==23);
+ assert(rx_bandwidth_dcap(20)==12);assert(rx_bandwidth_dcap(16)==24);
+ assert(rx_bandwidth_dcap(19)==14);assert(rx_bandwidth_dcap(12)==48);
 #elif CONFIG_IDF_TARGET_ESP32C6
  assert(rx_bandwidth_dcap(48)==4);assert(rx_bandwidth_dcap(39)==8);
  assert(rx_bandwidth_dcap(28)==16);assert(rx_bandwidth_dcap(20)==32);
@@ -49,7 +53,7 @@ int main(void) {
  return 0;
 }
 '''
-        for chip in ['ESP32','ESP32C6','ESP32C61','ESP32S3','ESP32S31']:
+        for chip in ['ESP32','ESP32C5','ESP32C6','ESP32C61','ESP32S3','ESP32S31']:
             self.compile_run(source,[f'-DCONFIG_IDF_TARGET_{chip}=1'])
 
     def test_c61_mirror_and_agc_restore(self):

@@ -1,6 +1,6 @@
 # ESP-SDR firmware
 
-Direct I/Q receive-only firmware for ESP32 chips. The original ESP32 and C5/C6/C61/S3 backends
+Direct I/Q receive-only firmware for ESP32 chips. The original ESP32 and C5/C6/C61/S3/S31 backends
 run without a display, status LED, buttons, or board-revision configuration.
 They use internal RAM and require no PSRAM. Only the selected transport pins
 are used. The browser viewer and installer live in [esp-web-sdr](../esp-web-sdr/README.md).
@@ -10,13 +10,13 @@ are used. The browser viewer and installer live in [esp-web-sdr](../esp-web-sdr/
 | ESP32 | UART0 only (GPIO1 TX / GPIO3 RX, 2 MBaud) | At least 2 MB flash; 2412–2472 MHz in 5 MHz steps; 80/40/16 MS/s snapshots |
 | ESP32-C5 | Native USB Serial/JTAG | Generic firmware; at least 2 MB flash |
 | ESP32-S3 | Native USB Serial/JTAG and optional UART0 | Generic firmware; at least 2 MB flash |
-| ESP32-S31 | Serial snapshots on native USB Serial/JTAG/UART0, plus Ethernet/native high-speed USB streaming | Requires the existing SDK, memory and transport hardware configuration |
+| ESP32-S31 | Native USB Serial/JTAG and optional UART0 | At least 2 MB flash; no PSRAM; 80/40/20/10/8/4 MS/s snapshots |
 | ESP32-C6 | Native USB Serial/JTAG and optional UART0 | At least 2 MB flash; direct tuning attempts from 2100–2800 MHz |
 | ESP32-C61 | Native USB Serial/JTAG and optional UART0 | Generic firmware; at least 2 MB flash; 2400–2500 MHz |
 
 A generic board is not the same as a generic chip: each chip needs its own RF
 backend. Other ESP32 models are not supported simply by selecting their IDF
-target. C5/C6/C61/S3 snapshots have capture gaps; RF sample rate is not sustained serial
+target. C5/C6/C61/S3/S31 snapshots have capture gaps; RF sample rate is not sustained serial
 throughput. Gain and power measurements are uncalibrated.
 
 ## Build ESP32, C5, C6, C61 or S3
@@ -49,10 +49,9 @@ with crossed TX/RX and common ground, or use the board's existing bridge.
 `ESP_SDR_UART_TX_PIN` and `ESP_SDR_UART_RX_PIN`. Disable UART to leave
 those pins unused by the application. Native USB ignores the host baud setting.
 
-All four backends start with hardware AGC. `GAIN HARDWARE` releases forced gain;
+All backends start with hardware AGC. `GAIN HARDWARE` releases forced gain;
 `GAIN MANUAL <index>` selects a fixed PHY gain index. `GAIN AUTO` is no longer
-accepted. The S31 control API uses gain mode 0 for hardware AGC, 1 for manual
-and 2 for expert gain; its software gain controller and telemetry are removed.
+accepted. S31 uses these same commands.
 
 Both serial interfaces may be connected, but one client owns the shared radio.
 Replies and binary frames return only on that client's port; other clients
@@ -63,16 +62,15 @@ second than native USB; both carry framed snapshots, not gap-free acquisition.
 
 ## Other backends and releases
 
-S31 uses `sdkconfig.defaults.esp32s31` and its existing PSRAM and transport configuration.
-Its Ethernet mode needs the configured external PHY and wiring. This backend
-has not been converted into a hardware-independent configuration. Initialize
-its dependencies with `git submodule update --init --recursive`, and enable the
-component manager when downloading registry components. The custom TinyUSB
-component uses `managed_components/espressif__tinyusb`.
+S31 uses `sdkconfig.defaults.esp32s31` with the preview SDK pinned in
+`firmware-targets.json`. Build it with `tools/build_firmware.py --profile esp32s31`
+and the version/output arguments below. Its standard ADC-dump backend needs
+neither PSRAM nor Ethernet hardware. Native USB means USB Serial/JTAG; the
+previous vendor-USB/Ethernet streaming image is replaced by serial snapshots.
 
-`main/` contains chip backends, transports and the embedded S31 network status
-page. `components/` holds dependencies; `tools/export_web_firmware.py` exports
-built images for the website. See [the artifact contract](docs/web-firmware-artifacts.md).
+`main/` contains the chip backends and shared serial transport.
+`tools/export_web_firmware.py` exports built images for the website.
+See [the artifact contract](docs/web-firmware-artifacts.md).
 Do not enable diagnostic probe options in release builds.
 
 ## CI firmware builds
@@ -92,8 +90,7 @@ Artifacts include images, checksums, flash offsets, source/SDK revisions and
 qualification results or automatically published GitHub Releases.
 
 To reproduce a CI profile, check out the SDK commit in the catalog, initialize
-its submodules, run its `install.sh <target>` and source `export.sh`. Initialize
-this repository's submodules for S31, then run:
+its submodules, run its `install.sh <target>` and source `export.sh`, then run (S31 no longer needs this repository's submodules):
 
 ```sh
 python tools/build_firmware.py --profile esp32s3 --version "$(git rev-parse HEAD)" \
@@ -113,7 +110,7 @@ Build with `IDF_TARGET=esp32c61` and `sdkconfig.defaults.esp32c61`, using a sepa
 
 C5 and C61 share `main/c5_c61_main.c`; chip-specific capture and tuning limits live in `main/c5_c61_chip.h`. The serial transport is shared with S3. Old S3 UART configuration names migrate through `main/sdkconfig.rename`. C61 reserves SRAM bank 3 for 16380 complex samples and four overrun canaries, leaving ROM memory accessible during capture.
 
-C61 supports whole-MHz tuning from 2400 to 2500 MHz, IQ8/IQ10, gain and filter controls, and nominal 80/40/20/10/8/4 MS/s snapshot rates. These divider rates follow the reference sensor firmware; independent RF/sample-rate calibration remains outstanding. C61, S3 and S31 UART captures and controls have hardware coverage; C5 has build and host-test coverage.
+C61 supports whole-MHz tuning from 2400 to 2500 MHz, IQ8/IQ10, gain and filter controls, and nominal 80/40/20/10/8/4 MS/s snapshot rates. These divider rates follow the reference sensor firmware; independent RF/sample-rate calibration remains outstanding. C61, S3 and S31 UART captures and controls have hardware coverage; C5 captures and controls were also tested over native USB Serial/JTAG.
 
 ## Negotiated receive controls
 
@@ -135,17 +132,17 @@ BBTOP registers 4/5. It mirrors forced gain entries into the second table and
 disables RF saturation intervention for manual gain; hardware AGC restores
 its calibrated settings. S31 retains its own 13–54 MHz mapping. S3 uses a
 separate measured 13–69 MHz curve. See [calibration notes](docs/rx-controls.md).
-C5 advertises `bandwidth: null` and uses the PHY's automatic filter.
+C5 advertises an approximate 11–23 MHz receive bandwidth and applies its own
+measured capacitor-code curve to BBTOP registers 6/7. ESP-WebSDR defaults to
+20 MHz and 80 MS/s.
 
 S31 exposes the same serial handshake at 2 MBaud on UART0 TX58/RX59 and
-native USB Serial/JTAG. It collects 16,384 contiguous complex samples from
-the existing PARLIO receiver into a 32 KiB PSRAM snapshot, stops acquisition,
-then sends the CRC-framed response. `CAP16` supports rate codes 6/4/5
-(16/8/4 MS/s); it does not advertise synthetic 10-bit precision. Other
-serial clients receive `ERR busy` until release or expiry. A serial request
-also rejects an already active Ethernet/vendor-USB stream. A later stream
-start on another transport can replace the serial capture, which reports an
-error rather than returning mixed data.
+native USB Serial/JTAG. `main/s31_main.c` captures up to 16,380 contiguous
+complex samples from the standard ADC dump engine, in IQ8 or packed IQ10.
+Hardware rates are 80/40/20/10/8/4 MS/s. The old PARLIO-specific 16 MS/s mode
+is not advertised by this backend. Gain, bandwidth and rate limits are
+negotiated through `LIMITS?`, so ESP-WebSDR enables the new modes automatically.
+See [S31 capture details](docs/s31-capture.md) for the memory handoff and tests.
 
 ## ESP32-C6
 

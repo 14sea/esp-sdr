@@ -272,7 +272,7 @@ static void handle_command(char *line) {
 #if CONFIG_IDF_TARGET_ESP32C6
         else if(!strcmp(line,"RANGE?")){reply("RANGE 2100 2800 1\n");}
 #endif
-#if CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
+#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
         else if(sscanf(line,"BANDWIDTH %u %c",&n,&extra)==1 && (!n || (n>=RX_BANDWIDTH_MIN && n<=RX_BANDWIDTH_MAX))) {
             rx_analog_filter=rx_bandwidth_dcap(n);reply("OK\n");
         }
