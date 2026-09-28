@@ -21,7 +21,10 @@ class RxControls(unittest.TestCase):
 #include "rx_bandwidth.h"
 int main(void) {
  assert(rx_bandwidth_dcap(0)==0);
-#if CONFIG_IDF_TARGET_ESP32
+#if CONFIG_IDF_TARGET_ESP32S2
+ assert(rx_bandwidth_dcap(RX_BANDWIDTH_MAX)==8);
+ assert(rx_bandwidth_dcap(RX_BANDWIDTH_MIN)==63);
+#elif CONFIG_IDF_TARGET_ESP32
  assert(rx_bandwidth_dcap(RX_BANDWIDTH_MAX)==8);
  assert(rx_bandwidth_dcap(RX_BANDWIDTH_MIN)==127);
 #else
@@ -41,6 +44,9 @@ int main(void) {
  assert(rx_bandwidth_dcap(48)==4);assert(rx_bandwidth_dcap(39)==8);
  assert(rx_bandwidth_dcap(28)==16);assert(rx_bandwidth_dcap(20)==32);
  assert(rx_bandwidth_dcap(15)==48);assert(rx_bandwidth_dcap(12)==60);
+#elif CONFIG_IDF_TARGET_ESP32S2
+ assert(RX_BANDWIDTH_MIN==15 && RX_BANDWIDTH_MAX==60);
+ assert(rx_bandwidth_dcap(41)==16);assert(rx_bandwidth_dcap(26)==32);
 #elif CONFIG_IDF_TARGET_ESP32S3
  assert(rx_bandwidth_dcap(51)==4);assert(rx_bandwidth_dcap(33)==16);
  assert(rx_bandwidth_dcap(25)==24);assert(rx_bandwidth_dcap(21)==32);
@@ -53,7 +59,7 @@ int main(void) {
  return 0;
 }
 '''
-        for chip in ['ESP32','ESP32C5','ESP32C6','ESP32C61','ESP32S3','ESP32S31']:
+        for chip in ['ESP32','ESP32C5','ESP32C6','ESP32C61','ESP32S2','ESP32S3','ESP32S31']:
             self.compile_run(source,[f'-DCONFIG_IDF_TARGET_{chip}=1'])
 
     def test_c61_mirror_and_agc_restore(self):

@@ -15,7 +15,7 @@ static unsigned gain_max(void) {
     unsigned maximum=(REG_READ(BURST_GAIN_REG)>>8)&127u;
     #if CONFIG_IDF_TARGET_ESP32C5
     return maximum<90u ? maximum : 0u;
-#elif CONFIG_IDF_TARGET_ESP32S3
+#elif CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2
     return maximum<=82u ? maximum : 0u;
 #else
     return maximum<80u ? maximum : 0u;

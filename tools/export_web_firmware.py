@@ -1,10 +1,23 @@
 #!/usr/bin/env python3
 """Export one ESP-IDF build as a versioned artifact for esp-web-sdr (stdlib only)."""
 import argparse
+from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
 import re
+
+
+def firmware_build_date(data):
+    # ESP-IDF esp_app_desc_t starts after the 24-byte image and 8-byte segment
+    # headers. Its date field follows magic/security/reserved/version/name/time.
+    if data[32:36] != bytes.fromhex('3254cdab'):
+        return None
+    try:
+        return datetime.strptime(data[128:144].split(b'\0', 1)[0].decode('ascii'),
+                                 '%b %d %Y').date().isoformat()
+    except (ValueError, UnicodeDecodeError):
+        return None
 
 
 def export(build, output, board, label, version, allow_larger_flash=False):
@@ -12,7 +25,7 @@ def export(build, output, board, label, version, allow_larger_flash=False):
         raise ValueError('Board ID must contain only letters, numbers, dots, underscores or hyphens')
     cache = (build / 'CMakeCache.txt').read_text()
     for line in cache.splitlines():
-        if re.match(r'(SAMPLE_RATE_PROBE|FILTER_REGISTER_PROBE|S3_RF_PROBE|C5_TUNE_PROBE):', line):
+        if re.match(r'(SAMPLE_RATE_PROBE|FILTER_REGISTER_PROBE|S3_RF_PROBE|S2_RF_PROBE|C5_TUNE_PROBE):', line):
             if line.rsplit('=', 1)[-1].upper() not in ('OFF', 'FALSE', '0', 'NO', ''):
                 raise ValueError('Refusing to export diagnostic probe firmware')
     config = json.loads((build / 'config/sdkconfig.json').read_text())
@@ -51,6 +64,9 @@ def export(build, output, board, label, version, allow_larger_flash=False):
         revision=board, label=label, target=target, chip=chip, version=version,
         flash_size=settings['flash_size'], flash_size_policy='minimum' if allow_larger_flash else 'exact',
         flash_settings=settings, esptool_args=args['extra_esptool_args'], parts=parts)})
+    dates = [date for _, data in payloads if (date := firmware_build_date(data))]
+    if dates:
+        manifest['variants'][board]['build_date'] = dates[-1]
     # Each matrix job writes a separate artifact directory; never merge in place.
     output.mkdir(parents=True, exist_ok=False)
     images = output / board

@@ -37,11 +37,22 @@ class FirmwareExport(unittest.TestCase):
         self.assertEqual(variant['parts'][0]['offset'], 65536)
         self.assertIn('0x10000 esp32s3/0-app.bin', (self.root / 'output/flash_args').read_text())
 
+    def test_build_date_from_image_descriptor(self):
+        data = bytearray(144)
+        data[32:36] = bytes.fromhex('3254cdab')
+        data[128:139] = b'Sep 28 2026'
+        (self.build / 'app.bin').write_bytes(data)
+        manifest = json.loads(self.export().read_text())
+        self.assertEqual(manifest['variants']['esp32s3']['build_date'], '2026-09-28')
+        self.assertIsNone(exporter.firmware_build_date(b'not an app'))
+
     def test_probe_firmware_rejected(self):
-        (self.build / 'CMakeCache.txt').write_text('SAMPLE_RATE_PROBE:BOOL=ON')
-        with self.assertRaisesRegex(ValueError, 'diagnostic'):
-            self.export()
-        self.assertFalse((self.root / 'output').exists())
+        for flag in ['SAMPLE_RATE_PROBE','FILTER_REGISTER_PROBE','S2_RF_PROBE','S3_RF_PROBE','C5_TUNE_PROBE']:
+            with self.subTest(flag=flag):
+                (self.build / 'CMakeCache.txt').write_text(flag+':BOOL=ON')
+                with self.assertRaisesRegex(ValueError, 'diagnostic'):
+                    self.export()
+                self.assertFalse((self.root / 'output').exists())
 
     def test_target_mismatch_rejected(self):
         self.args['extra_esptool_args']['chip'] = 'esp32c5'

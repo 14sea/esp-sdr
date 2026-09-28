@@ -1,7 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
 
-# C5 uses the fixed USB Serial/JTAG controller and its own RF backend.
-if(IDF_TARGET STREQUAL "esp32" OR IDF_TARGET STREQUAL "esp32c6" OR IDF_TARGET STREQUAL "esp32c5" OR IDF_TARGET STREQUAL "esp32c61" OR IDF_TARGET STREQUAL "esp32s3" OR IDF_TARGET STREQUAL "esp32s31")
+# S2 uses the ROM USB-OTG CDC driver; keep its pinned compatibility fix
+# scoped to this target so other chips retain their SDK components.
+if(IDF_TARGET STREQUAL "esp32s2")
+    list(APPEND EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/platform/esp32s2/esp_usb_cdc_rom_console")
+endif()
+
+# Standalone burst receivers.
+if(IDF_TARGET STREQUAL "esp32s2" OR IDF_TARGET STREQUAL "esp32" OR IDF_TARGET STREQUAL "esp32c6" OR IDF_TARGET STREQUAL "esp32c5" OR IDF_TARGET STREQUAL "esp32c61" OR IDF_TARGET STREQUAL "esp32s3" OR IDF_TARGET STREQUAL "esp32s31")
     set(ENV{IDF_COMPONENT_MANAGER} "0")
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
     idf_build_set_property(MINIMAL_BUILD ON)

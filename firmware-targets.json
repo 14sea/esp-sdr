@@ -54,6 +54,15 @@
       "allow_larger_flash": true,
       "preview": false,
       "submodules": false
+    },
+    {
+      "id": "esp32s2",
+      "target": "esp32s2",
+      "label": "ESP32-S2 (4 MB or larger)",
+      "idf_ref": "25fe69f946311abdaf9ad56591f25fedbc20ac98",
+      "allow_larger_flash": true,
+      "preview": false,
+      "submodules": false
     }
   ],
   "unavailable": {}

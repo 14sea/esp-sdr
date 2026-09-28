@@ -13,6 +13,9 @@
 #include "hal/usb_serial_jtag_ll.h"
 #endif
 #include "sdkconfig.h"
+#if CONFIG_IDF_TARGET_ESP32S2
+#include "esp_private/usb_console.h"
+#endif
 
 #ifndef CONFIG_ESP_SDR_UART_BAUD
 #define CONFIG_ESP_SDR_UART_BAUD 2000000
@@ -28,7 +31,13 @@ static struct {
     int64_t last_byte;
 } input[BURST_SERIAL_COUNT];
 
+#if CONFIG_IDF_TARGET_ESP32S2
+static void usb_ready(void *arg) { (void)arg; }
+#endif
 void burst_serial_init(void) {
+#if CONFIG_IDF_TARGET_ESP32S2
+    ESP_ERROR_CHECK(esp_usb_console_set_cb(usb_ready,usb_ready,NULL));
+#endif
 #if CONFIG_ESP_SDR_UART_ENABLED
     const uart_config_t config = {
         .baud_rate = CONFIG_ESP_SDR_UART_BAUD,
@@ -64,6 +73,8 @@ static int read_port(burst_serial_port_t port, void *buffer, size_t size) {
     }
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
     return usb_serial_jtag_ll_read_rxfifo(buffer, size > 64 ? 64 : size);
+#elif CONFIG_IDF_TARGET_ESP32S2
+    return esp_usb_console_read_buf(buffer,size);
 #else
     return 0;
 #endif
@@ -130,6 +141,12 @@ bool IRAM_ATTR burst_serial_send(const void *data, size_t size) {
             if (!usb_serial_jtag_ll_txfifo_writable()) continue;
             sent = usb_serial_jtag_ll_write_txfifo(p, size > 64 ? 64 : size);
             usb_serial_jtag_ll_txfifo_flush();
+#elif CONFIG_IDF_TARGET_ESP32S2
+
+            sent=esp_usb_console_write_buf((const char *)p,size>64?64:size);
+            if(sent<0)return false;
+            if(!sent)taskYIELD();
+            else esp_usb_console_flush();
 #else
             return false;
 #endif

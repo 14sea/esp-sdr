@@ -19,7 +19,7 @@ menu "ESP-SDR transport"
 
     config ESP_SDR_UART_ENABLED
         bool "Burst UART0 I/Q transport" if !IDF_TARGET_ESP32
-        depends on IDF_TARGET_ESP32 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31
+        depends on IDF_TARGET_ESP32 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31
         default y
         help
             Enable the optional USB-to-UART bridge interface. Disable it to
@@ -28,7 +28,7 @@ menu "ESP-SDR transport"
 
     config ESP_SDR_UART_BAUD
         int "Burst UART0 I/Q baud rate"
-        depends on IDF_TARGET_ESP32 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31
+        depends on IDF_TARGET_ESP32 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31
         range 115200 3000000
         default 2000000
         help
@@ -37,7 +37,7 @@ menu "ESP-SDR transport"
 
     config ESP_SDR_UART_TX_PIN
         int "Burst UART0 TX GPIO"
-        depends on IDF_TARGET_ESP32 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31
+        depends on IDF_TARGET_ESP32 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31
         range 0 48 if !IDF_TARGET_ESP32S31
         range 0 63 if IDF_TARGET_ESP32S31
         default 1 if IDF_TARGET_ESP32
@@ -48,7 +48,7 @@ menu "ESP-SDR transport"
 
     config ESP_SDR_UART_RX_PIN
         int "Burst UART0 RX GPIO"
-        depends on IDF_TARGET_ESP32 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31
+        depends on IDF_TARGET_ESP32 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31
         range 0 48 if !IDF_TARGET_ESP32S31
         range 0 63 if IDF_TARGET_ESP32S31
         default 3 if IDF_TARGET_ESP32

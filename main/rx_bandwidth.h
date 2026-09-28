@@ -5,14 +5,18 @@
  * S31 retains its separately characterized 21 MHz anchor.
  * S3 curve: measured noise spectrum at 2300 MHz, gain 75, 80 MS/s;
  * 12 snapshots/code, median windowed FFTs, approximate -3 dB full width. */
-#if CONFIG_IDF_TARGET_ESP32C5
+#if CONFIG_IDF_TARGET_ESP32S2
+#define RX_BANDWIDTH_MIN 15u
+#elif CONFIG_IDF_TARGET_ESP32C5
 #define RX_BANDWIDTH_MIN 11u
 #elif CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32C6
 #define RX_BANDWIDTH_MIN 12u
 #else
 #define RX_BANDWIDTH_MIN 13u
 #endif
-#if CONFIG_IDF_TARGET_ESP32
+#if CONFIG_IDF_TARGET_ESP32S2
+#define RX_BANDWIDTH_MAX 60u
+#elif CONFIG_IDF_TARGET_ESP32
 #define RX_BANDWIDTH_MAX 67u
 #elif CONFIG_IDF_TARGET_ESP32C5
 #define RX_BANDWIDTH_MAX 23u
@@ -23,7 +27,10 @@
 #endif
 static inline uint8_t rx_bandwidth_dcap(unsigned mhz) {
     static const struct { uint8_t dcap,mhz; } cal[]={
-#if CONFIG_IDF_TARGET_ESP32
+#if CONFIG_IDF_TARGET_ESP32S2
+        /* Measured S2 noise FFT full widths; code 0 remains wide open. */
+        {8,60},{12,49},{16,41},{24,32},{32,26},{40,22},{48,19},{56,16},{63,15}
+#elif CONFIG_IDF_TARGET_ESP32
         /* Original ESP32: seven-bit BBTOP 1/2, 2472 MHz, gain 72, IQ10.
          * Code 0 is wider than the measured span. Numeric max uses code 8. */
         {8,67},{12,55},{16,48},{24,38},{32,32},{48,25},

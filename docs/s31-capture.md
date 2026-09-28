@@ -19,9 +19,8 @@ normalizes them to the shared protocol's I-then-Q layout before packing.
 There is no synthetic precision or software sample-rate conversion.
 
 The standard dump path does not expose a verified 16 MS/s divider. The former
-PARLIO rate is intentionally absent from the handshake. Divider fields 4 and 6
-measured approximately 13.333 and 8.889 MS/s, respectively, and are not exposed.
-Old S31 firmware remains supported by the website through its own limits.
+PARLIO rate is intentionally absent from the handshake. Only the rates
+advertised by `LIMITS?` are supported.
 
 ## Memory handoff
 
@@ -45,37 +44,3 @@ The writer and gate are shut down on both success and timeout, before memory
 is read or either CPU resumes normal scheduling. Filter calibration is restored
 before serial output, including capture failures. Maximum acquisition time is
 bounded to 3,000,000 CPU cycles (9.375 ms at the configured 320 MHz).
-
-## Hardware validation, 2026-09-28
-
-Test board: ESP32-S31 revision 0.0, UART bridge at `/dev/ttyUSB0`, 2 MBaud.
-Native USB uses the shared transport but was not connected for this test.
-
-99 captures passed payload CRC and firmware memory checks, covering six rates,
-both precisions, lengths 256/257/4096/16380, gain controls, frequency endpoints,
-and bandwidth controls. Invalid lengths/rates/gain/bandwidth/frequencies were
-rejected. The 257-sample case exercises the packed IQ10 odd tail.
-
-| Requested MS/s | Measured MS/s from duration slope |
-| --- | --- |
-| 80 | 79.77 |
-| 40 | 40.01 |
-| 20 | 20.01 |
-| 10 | 10.00 |
-| 8 | 8.00 |
-| 4 | 4.00 |
-
-Slopes compare 4,096 and 16,380 samples; timestamps are rounded to integer
-microseconds. This is an acquisition-timing check, not an external RF-clock
-calibration. A full 80 MS/s snapshot took about 208 us including settling.
-
-The board reported manual gain indices 0–71. Gain changes altered captured
-noise levels; indices are calibrated PHY table codes, not uniform dB steps.
-At 2300 MHz and gain 71, median noise FFTs showed an outer/inner passband power
-ratio of approximately -31 dB at 13 MHz bandwidth versus +1 dB at 54 MHz
-(outer region 20–30 MHz, reference 2–5 MHz). This confirms filter response;
-it is not a fresh precision calibration of every advertised MHz setting.
-
-The actual ESP-WebSDR page was tested through a serial bridge to the hardware:
-all six rates, IQ8/IQ10, gain/bandwidth changes, tuning and reconnect passed.
-The viewer's existing capability negotiation needs no new chip-specific UI.

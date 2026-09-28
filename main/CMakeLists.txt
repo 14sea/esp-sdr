@@ -1,9 +1,19 @@
-set(esp_sdr_supported_targets esp32 esp32c5 esp32s3 esp32s31 esp32c61 esp32c6)
+set(esp_sdr_supported_targets esp32s2 esp32 esp32c5 esp32s3 esp32s31 esp32c61 esp32c6)
 if(NOT IDF_TARGET IN_LIST esp_sdr_supported_targets)
     message(FATAL_ERROR "No ESP-SDR RF backend for ${IDF_TARGET}. Generic board firmware is available for esp32c5, esp32c6, esp32c61 and esp32s3; esp32s31 use their existing specialized backends.")
 endif()
 
 option(SAMPLE_RATE_PROBE "Build volatile hardware sample-rate diagnostics (never package)" OFF)
+
+if(IDF_TARGET STREQUAL "esp32s2")
+    idf_component_register(SRCS "s2_main.c" "burst_serial.c"
+        REQUIRES esp_phy esp_wifi nvs_flash esp_timer esp_usb_cdc_rom_console esp_driver_uart)
+    if(S2_RF_PROBE)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE S2_RF_PROBE=1)
+    endif()
+    target_link_options(${COMPONENT_LIB} INTERFACE "-T${CMAKE_CURRENT_LIST_DIR}/s2_sram_guard.ld")
+    return()
+endif()
 
 if(IDF_TARGET STREQUAL "esp32s31")
     idf_component_register(SRCS "s31_main.c" "burst_serial.c" "burst_gain_table.c"
