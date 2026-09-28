@@ -54,8 +54,8 @@ C6 currently exposes only nominal 80 MS/s. Other tested clock/divider settings
 and dump sources did not establish a reliable lower-rate I/Q path. Unsupported
 rates are rejected.
 
-ESP32, C6 and S2 advertise `TUNEEXT` and report whole-MHz attempt ranges through
-`RANGE?`: 2100–2800 MHz for ESP32/C6 and 2212–2813 MHz for S2. Standard
+ESP32, C61, C6 and S2 advertise `TUNEEXT` and report whole-MHz attempt ranges through
+`RANGE?`: 2100–2800 MHz for ESP32/C61/C6 and 2212–2813 MHz for S2. Standard
 Wi-Fi centers use channel tuning. Other frequencies calibrate at 2412 MHz before programming
 the PLL directly, avoiding channel-number rounding. The viewer warns and
 continues capture outside standard centers. Requests outside the advertised
@@ -66,6 +66,11 @@ ESP32 validation on an ESP32-D0WD-V3 rev. 3.1 with a 40 MHz crystal covered
 all 701 whole-MHz settings with CRC-checked captures, plus 132 maximum-size
 captures across 80/40/16 MS/s, 8/10-bit packing and manual gain/AGC. This
 checks command and capture stability, not RF accuracy or PLL lock.
+
+C61 validation on an ESP32-C61HR2 rev. 1.0 with a 40 MHz crystal likewise
+covered all 701 settings with CRC-checked captures, plus 264 maximum-size
+captures across all six rates, 8/10-bit packing and manual gain/AGC. RF
+accuracy and PLL lock across the extended range remain unverified.
 
 All advertised rates are nominal. Capture timing and payload checks do not
 replace independent RF/sample-clock calibration.

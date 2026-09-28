@@ -76,7 +76,7 @@ analog bandwidth; zero selects the widest setting.
 - **C3:** tuning attempts over 2100–2800 MHz in 1 MHz steps; 80 MS/s;
   14–62 MHz analog bandwidth. Native USB tested; UART build-verified.
 - **C5:** 11–23 MHz bandwidth.
-- **C61:** 2400–2500 MHz in 1 MHz steps; 80/40/20/10/8/4 MS/s;
+- **C61:** tuning attempts over 2100–2800 MHz in 1 MHz steps; 80/40/20/10/8/4 MS/s;
   13–54 MHz bandwidth.
 - **C6:** tuning attempts over 2100–2800 MHz; 80 MS/s; 12–54 MHz bandwidth.
 - **S2:** tuning attempts over 2212–2813 MHz; 80/40/16 MS/s;

@@ -257,7 +257,7 @@ static void handle_command(char *line) {
 #endif
         else if(!strcmp(line,"CAPS")) {
             reply("CAPS RXLIMITS GAIN HWAGC IQ8 SERIALLEASE"
-#if CONFIG_IDF_TARGET_ESP32C6
+#if CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
                   " TUNEEXT"
 #endif
 #if !CONFIG_IDF_TARGET_ESP32C6
@@ -269,7 +269,7 @@ static void handle_command(char *line) {
 #endif
                   "\n");
         }
-#if CONFIG_IDF_TARGET_ESP32C6
+#if CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
         else if(!strcmp(line,"RANGE?")){reply("RANGE 2100 2800 1\n");}
 #endif
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6

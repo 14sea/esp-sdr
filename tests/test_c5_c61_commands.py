@@ -39,14 +39,20 @@ static unsigned gain_max(void) { return 84; }
 static bool capture(unsigned n,unsigned d,unsigned f) { ++captures;last_samples=n;last_format=f;return true; }
 static void vTaskDelay(int ticks) {}
 static unsigned phy_chip_i2c_readReg(unsigned a,unsigned b,unsigned c) { return 4; }
-static void prepare_rx(void) { rx_ready=true; }
 #define REG_READ(a) 0u
-static bool frequency_valid(unsigned f) {
 #if CONFIG_IDF_TARGET_ESP32C61
-return f>=2400 && f<=2500;
+static unsigned calibrated,pll,tunes;
+void phy_chip_set_chan(unsigned f,unsigned mode) { assert(mode==0);calibrated=f;pll=f;tunes++; }
+void phy_set_freq(unsigned f,int offset) { assert(offset==0);pll=f; }
+#include "c61_tuning.h"
 #else
-return (f>=2100 && f<=2700)||(f>=4800 && f<=6000);
+static bool frequency_valid(unsigned f) {return (f>=2100 && f<=2700)||(f>=4800 && f<=6000);}
 #endif
+static void prepare_rx(void) {
+#if CONFIG_IDF_TARGET_ESP32C61
+ phy_chip_set_chan(frequency_mhz,0);
+#endif
+ rx_ready=true;
 }
 '''
         check=r'''
@@ -72,6 +78,18 @@ int main(void) {
  command("LPF 12");assert(rx_filter==12);command("LPF AUTO");assert(rx_filter==-1);
  command("ALPF 63");assert(rx_analog_filter==63);command("ALPF AUTO");assert(rx_analog_filter==-1);
 #if CONFIG_IDF_TARGET_ESP32C61
+ command("CAPS");assert(strstr(response,"TUNEEXT"));
+ command("RANGE?");assert(!strcmp(response,"RANGE 2100 2800 1\n"));
+ for(unsigned f=2100;f<=2800;f++) {
+   char cmd[32];snprintf(cmd,sizeof(cmd),"FREQ %u",f);command(cmd);
+   assert(!strcmp(response,"OK\n") && frequency_mhz==f && pll==f && rx_ready);
+   assert(calibrated==(((f>=2412 && f<=2472 && (f-2412)%5==0)||f==2484)?f:2412));
+ }
+ unsigned before=tunes;
+ const char *invalid[]={"FREQ 2099","FREQ 2801","FREQ -1","FREQ 0","FREQ 2413 junk"};
+ for(unsigned i=0;i<sizeof(invalid)/sizeof(invalid[0]);i++){command(invalid[i]);assert(!strcmp(response,"ERR command\n"));}
+ assert(tunes==before);
+ command("FREQ 2413");command("FREQ 2412");assert(pll==2412 && calibrated==2412);
  command("BANDWIDTH 21");assert(rx_analog_filter==24);
  command("BANDWIDTH 13");assert(rx_analog_filter==60);
  command("BANDWIDTH 54");assert(rx_analog_filter==0);

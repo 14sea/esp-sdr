@@ -47,7 +47,7 @@ static bool stock_capture(unsigned n,unsigned divider) {
     (void)REG_READ(SRAM_OWNER_REG);
     return done;
 }
-static bool frequency_valid(unsigned mhz) { return mhz>=2400 && mhz<=2500; }
+#include "c61_tuning.h"
 #else
 #define BURST_ID "C5SDR"
 /* C5 ownership bit 1 covers an entire 128 KiB bank. */
