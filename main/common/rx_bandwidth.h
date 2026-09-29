@@ -23,14 +23,26 @@
 #elif CONFIG_IDF_TARGET_ESP32
 #define RX_BANDWIDTH_MAX 67u
 #elif CONFIG_IDF_TARGET_ESP32C5
-#define RX_BANDWIDTH_MAX 23u
+#define RX_BANDWIDTH_MAX 48u
 #elif CONFIG_IDF_TARGET_ESP32S3
 #define RX_BANDWIDTH_MAX 69u
 #else
 #define RX_BANDWIDTH_MAX 54u
 #endif
+/* C5 mode 1 runs the wide PHY path while retaining the RX0 cap DAC.
+ * Modes 2/3 select the other analog branch and bypass this capacitor pair.
+ * A complete channel setup is required: individual digital register writes
+ * do not update the PHY's PBUS analog-control tables. */
+static inline unsigned rx_bandwidth_phy_mode(unsigned mhz) {
+#if CONFIG_IDF_TARGET_ESP32C5
+    return !mhz || mhz>23u ? 1u : 0u;
+#else
+    (void)mhz;return 0u;
+#endif
+}
+typedef struct { uint8_t dcap,mhz; } rx_bandwidth_point_t;
 static inline uint8_t rx_bandwidth_dcap(unsigned mhz) {
-    static const struct { uint8_t dcap,mhz; } cal[]={
+    static const rx_bandwidth_point_t cal[]={
 #if CONFIG_IDF_TARGET_ESP32C3
         /* BBTOP 4/5, 2484 MHz, gain 79, 80 MS/s; median noise spectra, 24 captures/code. */
         {0,62},{4,50},{8,45},{12,39},{16,34},{24,27},
@@ -45,7 +57,7 @@ static inline uint8_t rx_bandwidth_dcap(unsigned mhz) {
         {64,20},{80,17},{96,15},{112,14},{127,12}
 #elif CONFIG_IDF_TARGET_ESP32C5
         /* C5: BBTOP 6/7; median noise FFTs at 2300/5500 MHz,
-         * 80 MS/s IQ10, default digital filtering. Approximate full width. */
+         * 80 MS/s IQ10, PHY channel mode 0. Approximate full width. */
         {0,23},{4,22},{8,21},{12,20},{16,18},{24,16},
         {32,15},{40,13},{48,12},{60,11}
 #elif CONFIG_IDF_TARGET_ESP32C6
@@ -64,12 +76,25 @@ static inline uint8_t rx_bandwidth_dcap(unsigned mhz) {
         {32,18},{48,15},{60,13}
 #endif
     };
-    if(!mhz)return 0;
-    if(mhz>=RX_BANDWIDTH_MAX)return cal[0].dcap;
-    if(mhz<=RX_BANDWIDTH_MIN)return cal[sizeof(cal)/sizeof(cal[0])-1].dcap;
-    for(unsigned i=1;i<sizeof(cal)/sizeof(cal[0]);i++)if(mhz>=cal[i].mhz) {
-        unsigned span=cal[i-1].mhz-cal[i].mhz;
-        return cal[i-1].dcap+((cal[i].dcap-cal[i-1].dcap)*(cal[i-1].mhz-mhz)+span/2)/span;
+    const rx_bandwidth_point_t *curve=cal;
+    unsigned count=sizeof(cal)/sizeof(cal[0]);
+#if CONFIG_IDF_TARGET_ESP32C5
+    /* Mode 1: noise sweeps at 2300/5500 MHz, checked with a fixed RF tone.
+     * Approximate two-sided widths; retain mode 0 for the 11–23 MHz range. */
+    static const rx_bandwidth_point_t wide[]={
+        {0,48},{4,45},{8,42},{12,40},{16,37},{24,34},
+        {32,30},{40,27},{48,25},{56,23},{60,22}
+    };
+    if(rx_bandwidth_phy_mode(mhz)) {
+        curve=wide;count=sizeof(wide)/sizeof(wide[0]);
     }
-    return cal[sizeof(cal)/sizeof(cal[0])-1].dcap;
+#endif
+    if(!mhz)return 0;
+    if(mhz>=curve[0].mhz)return curve[0].dcap;
+    if(mhz<=curve[count-1].mhz)return curve[count-1].dcap;
+    for(unsigned i=1;i<count;i++)if(mhz>=curve[i].mhz) {
+        unsigned span=curve[i-1].mhz-curve[i].mhz;
+        return curve[i-1].dcap+((curve[i].dcap-curve[i-1].dcap)*(curve[i-1].mhz-mhz)+span/2)/span;
+    }
+    return curve[count-1].dcap;
 }

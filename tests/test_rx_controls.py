@@ -35,7 +35,7 @@ int main(void) {
  assert(rx_bandwidth_dcap(RX_BANDWIDTH_MIN)==60);
 #endif
  for(unsigned mhz=RX_BANDWIDTH_MIN+1;mhz<=RX_BANDWIDTH_MAX;mhz++)
-   assert(rx_bandwidth_dcap(mhz)<=rx_bandwidth_dcap(mhz-1));
+   if(rx_bandwidth_phy_mode(mhz)==rx_bandwidth_phy_mode(mhz-1))assert(rx_bandwidth_dcap(mhz)<=rx_bandwidth_dcap(mhz-1));
 #if CONFIG_IDF_TARGET_ESP32
  assert(rx_bandwidth_dcap(48)==16);assert(rx_bandwidth_dcap(20)==64);
  assert(rx_bandwidth_dcap(32)==32);assert(rx_bandwidth_dcap(15)==96);
@@ -44,9 +44,13 @@ int main(void) {
  assert(rx_bandwidth_dcap(50)==4);assert(rx_bandwidth_dcap(34)==16);
  assert(rx_bandwidth_dcap(20)==40);assert(rx_bandwidth_dcap(21)==37);
 #elif CONFIG_IDF_TARGET_ESP32C5
- assert(RX_BANDWIDTH_MIN==11 && RX_BANDWIDTH_MAX==23);
+ assert(RX_BANDWIDTH_MIN==11 && RX_BANDWIDTH_MAX==48);
  assert(rx_bandwidth_dcap(20)==12);assert(rx_bandwidth_dcap(16)==24);
  assert(rx_bandwidth_dcap(19)==14);assert(rx_bandwidth_dcap(12)==48);
+ assert(rx_bandwidth_phy_mode(0)==1 && rx_bandwidth_phy_mode(48)==1);
+ assert(rx_bandwidth_phy_mode(23)==0 && rx_bandwidth_phy_mode(24)==1);
+ assert(rx_bandwidth_dcap(24)==52 && rx_bandwidth_dcap(34)==24);
+ assert(rx_bandwidth_dcap(40)==12 && rx_bandwidth_dcap(48)==0);
 #elif CONFIG_IDF_TARGET_ESP32C6
  assert(rx_bandwidth_dcap(48)==4);assert(rx_bandwidth_dcap(39)==8);
  assert(rx_bandwidth_dcap(28)==16);assert(rx_bandwidth_dcap(20)==32);

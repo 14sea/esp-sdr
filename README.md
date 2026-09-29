@@ -25,7 +25,7 @@ While we have a very good understanding of how the IQ sampling functionality wor
 | ESP32 | ✅ Supported | — | GPIO1 / GPIO3 | 2 MB |
 | ESP32-C2 | 🚧 Unsupported | — | — | — |
 | ESP32-C3 | ✅ Supported | Serial/JTAG | GPIO21 / GPIO20 | 2 MB |
-| ESP32-C5 | ✅ Supported | Serial/JTAG | — | 2 MB |
+| ESP32-C5 | ✅ Supported | Serial/JTAG | GPIO11 / GPIO12 | 2 MB |
 | ESP32-C6 | ✅ Supported | Serial/JTAG | GPIO16 / GPIO17 | 2 MB |
 | ESP32-C61 | ✅ Supported | Serial/JTAG | GPIO11 / GPIO10 | 2 MB |
 | ESP32-H2 | 🚧 Unsupported | — | — | — |
@@ -43,6 +43,8 @@ ground. UART defaults to **2,000,000 baud, 8N1, no flow control** on the pins
 above. Native USB ignores the host baud setting.
 
 Configure UART with the `ESP_SDR_UART_*` menuconfig options.
+C5 UART requires a firmware build with UART support; older USB-only images
+must be reflashed. See [C5 debugging results](docs/c5-debug.md).
 S2 UART is build-verified but untested with an adapter; reflash older USB-only
 images to enable it.
 
@@ -103,7 +105,7 @@ validated.
 
 - **ESP32:** 80/40/16 MS/s.
 - **C3:** 80 MS/s; 14–62 MHz analog bandwidth.
-- **C5:** 11–23 MHz bandwidth; selects its 5 GHz RF path above 3000 MHz.
+- **C5:** 11–48 MHz bandwidth; selects its 5 GHz RF path above 3000 MHz.
 - **C61:** 80/40/20/10/8/4 MS/s; 13–54 MHz bandwidth.
 - **C6:** 80 MS/s; 12–54 MHz bandwidth.
 - **S2:** 80/40/16 MS/s; 15–60 MHz bandwidth; up to 12,284 complex samples.

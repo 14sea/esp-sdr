@@ -64,6 +64,42 @@ int main(void){
 }
 '''.replace('CALL',call).replace('EXPECTED','(f>3000?5180u:2412u)' if target=='esp32c5' else '(channel?f:2412u)'))
 
+    def test_c5_bandwidth_mode_survives_prepare_and_retuning(self):
+        source = (MAIN/'families/c5_c6_c61/receiver.c').read_text()
+        prepare = source[source.index('static void prepare_rx(void) {'):source.index('#include "filter_probe.h"')]
+        self.compile_run(r'''
+#include <assert.h>
+#include <stdbool.h>
+#define CONFIG_IDF_TARGET_ESP32C5 1
+#define CONFIG_IDF_TARGET_ESP32C61 0
+#define CONFIG_IDF_TARGET_ESP32C6 0
+static unsigned frequency_mhz,rx_channel_mode,calls,calibrated,pll,last_mode;
+static bool rx_ready;
+static int rx_filter=-1;
+unsigned char phy_param[50]={[49]=2};
+void phy_set_chanfreq(unsigned f,unsigned m){calibrated=f;last_mode=m;calls++;}
+void phy_set_rf_freq_offset(unsigned c,unsigned f,int o){assert(c==2 && o==0);pll=f;}
+void phy_stop_tx_tone(unsigned x){assert(x==1);}
+void phy_pbus_workmode(void){}
+void phy_pbus_xpd_tx_off(void){}
+void phy_pbus_xpd_rx_on(unsigned x){assert(x==1);}
+void phy_set_rxclk_en(unsigned x){assert(x==1);}
+void phy_rx_filter_mode(unsigned x){assert(x==12);}
+void gain_apply(void){}
+#include "targets/esp32c5/tuning.h"
+''' + prepare + r'''
+int main(void){
+ for(unsigned mode=0;mode<=1;mode++)for(unsigned f=2300;f<=5500;f+=3200){
+  frequency_mhz=f;rx_channel_mode=mode;rx_ready=false;
+  unsigned before=calls;prepare_rx();
+  assert(calls==before+1 && last_mode==mode && pll==f && rx_ready);
+  assert(calibrated==(f>3000?5180u:2412u));
+  prepare_rx();assert(calls==before+1);
+ }
+ rx_filter=12;rx_ready=false;prepare_rx();assert(last_mode==1);
+}
+''')
+
     def test_s2_s3_s31_production_parsers(self):
         stub = r'''
 #include <assert.h>

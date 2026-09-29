@@ -31,7 +31,7 @@ Out-of-range requests are rejected.
 | Chip | Approximate bandwidth | BBTOP registers | Code width |
 | --- | --- | --- | --- |
 | ESP32 | 12–67 MHz | 1/2 | 7 bits |
-| C5 | 11–23 MHz | 6/7 | 6 bits |
+| C5 | 11–48 MHz | 6/7, two PHY modes | 6 bits |
 | C6 | 12–54 MHz | 4/5 | 6 bits |
 | C61 / S31 | 13–54 MHz | 4/5 | 6 bits |
 | S2 | 15–60 MHz | 4/5 | 6 bits |
@@ -44,8 +44,11 @@ firmware; other chips retain their own curves.
 
 These are approximate receive-path noise widths. Board calibration, operating
 conditions and digital filtering affect them; they do not guarantee alias-free
-reception at every sample rate. In particular, C5's mapping includes the normal
-digital-filter response. ESP32's widest settings exceed the characterized span;
+reception at every sample rate. C5 uses PHY mode 0 for 11–23 MHz and mode 1
+for 24–48 MHz or open. Changing modes runs the complete channel calibration,
+including PBUS analog-control tables; retuning preserves the chosen mode. Its
+curves include the digital-filter response. See the [C5 investigation](c5-debug.md).
+ESP32's widest settings exceed the characterized span;
 its numeric maximum uses code 8, while wide open selects code 0.
 
 ## Rates and extended tuning

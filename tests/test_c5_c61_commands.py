@@ -21,7 +21,7 @@ class SharedCommands(unittest.TestCase):
 #define RX_FILTER_REG 4u
 #include "rx_bandwidth.h"
 #include "rx_tuning.h"
-#define CONFIG_ESP_SDR_UART_ENABLED CONFIG_IDF_TARGET_ESP32C61
+#define CONFIG_ESP_SDR_UART_ENABLED 1
 #if CONFIG_IDF_TARGET_ESP32C61
 #define BURST_ID "C61SDR"
 #else
@@ -30,6 +30,7 @@ class SharedCommands(unittest.TestCase):
 static unsigned frequency_mhz,captures,last_format,last_samples;
 static int rx_filter,rx_analog_filter;
 static bool rx_ready;
+static unsigned rx_channel_mode,preparations;
 static char response[256];
 static int burst_serial_port(void) { return 1; }
 static unsigned burst_serial_baud(void) { return 921600; }
@@ -50,6 +51,7 @@ void phy_set_freq(unsigned f,int offset) { assert(offset==0);pll=f; }
 static bool frequency_valid(unsigned f) {return rx_frequency_valid(f);}
 #endif
 static void prepare_rx(void) {
+ preparations++;
 #if CONFIG_IDF_TARGET_ESP32C61
  phy_chip_set_chan(frequency_mhz,0);
 #endif
@@ -63,9 +65,10 @@ int main(void) {
  command("CAPS");assert(strstr(response,"SERIALLEASE"));assert(strstr(response,"IQ8"));assert(strstr(response,"TUNEEXT"));
  command("RANGE?");assert(!strcmp(response,"RANGE 100 6000 1\n"));
  for(unsigned f=100;f<=6000;f++){char cmd[32];snprintf(cmd,sizeof(cmd),"FREQ %u",f);command(cmd);assert(!strcmp(response,"OK\n") && frequency_mhz==f);}
- command("CAPS");assert(!!strstr(response,"DUALSERIAL")==CONFIG_IDF_TARGET_ESP32C61);
+ command("CAPS");assert(strstr(response,"DUALSERIAL"));
+ command("TRANSPORT?");assert(!strcmp(response,"TRANSPORT UART 921600\n"));
  command("LIMITS?");
- assert(strstr(response,CONFIG_IDF_TARGET_ESP32C61?"[13,54,1,0]":"[11,23,1,0]"));
+ assert(strstr(response,CONFIG_IDF_TARGET_ESP32C61?"[13,54,1,0]":"[11,48,1,0]"));
  assert(strstr(response,"80000000,40000000,20000000,10000000,8000000,4000000"));
  command("SYNC 987654321");assert(!strcmp(response,"SYNC 987654321\n"));
  command("CAP16 16380 5");assert(captures==1 && last_samples==16380 && last_format==16);
@@ -105,7 +108,17 @@ int main(void) {
  command("BANDWIDTH 23");assert(rx_analog_filter==0);
  command("BANDWIDTH 0");assert(rx_analog_filter==0);
  command("BANDWIDTH 10");assert(!strcmp(response,"ERR command\n"));
- command("BANDWIDTH 24");assert(!strcmp(response,"ERR command\n"));
+ unsigned before=preparations;
+ command("BANDWIDTH 24");assert(!strcmp(response,"OK\n") && rx_channel_mode==1 && rx_analog_filter==52 && preparations==before);
+ command("BANDWIDTH 40");assert(rx_channel_mode==1 && rx_analog_filter==12);
+ command("BANDWIDTH 48");assert(rx_channel_mode==1 && rx_analog_filter==0);
+ command("FREQ 5500");assert(rx_channel_mode==1 && rx_ready);
+ before=preparations;
+ command("BANDWIDTH 23");assert(rx_channel_mode==0 && rx_analog_filter==0 && preparations==before+1);
+ command("BANDWIDTH 11");assert(rx_channel_mode==0 && rx_analog_filter==60 && preparations==before+1);
+ command("BANDWIDTH 0");assert(rx_channel_mode==1 && rx_analog_filter==0 && preparations==before+2);
+ command("BANDWIDTH 49");assert(!strcmp(response,"ERR command\n") && rx_channel_mode==1 && rx_analog_filter==0);
+ command("BANDWIDTH 23 junk");assert(!strcmp(response,"ERR command\n") && rx_channel_mode==1);
 #endif
  command("BANDWIDTH 21 junk");assert(!strcmp(response,"ERR command\n"));
  command("RELEASE");assert(!strcmp(response,"OK\n"));

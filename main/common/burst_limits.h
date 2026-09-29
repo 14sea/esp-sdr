@@ -14,7 +14,7 @@ static bool limits_command(const char *line) {
 #elif CONFIG_IDF_TARGET_ESP32C6
              "[12,54,1,0]"
 #elif CONFIG_IDF_TARGET_ESP32C5
-             "[11,23,1,0]"
+             "[11,48,1,0]"
 #elif CONFIG_IDF_TARGET_ESP32C61
              "[13,54,1,0]"
 #else

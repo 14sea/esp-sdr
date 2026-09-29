@@ -34,6 +34,9 @@ extern void phy_chip_set_chan(unsigned,unsigned);
 extern void phy_rx_filter_mode(unsigned);
 static unsigned frequency_mhz=2412;
 static bool rx_ready;
+#if CONFIG_IDF_TARGET_ESP32C5
+static unsigned rx_channel_mode;
+#endif
 #if !CONFIG_IDF_TARGET_ESP32C6
 static int rx_filter=-1; /* -1 restores the PHY-calibrated automatic mode. */
 #endif
@@ -76,7 +79,11 @@ static void prepare_rx(void) {
         gain_defaults_saved=false;
     }
 #endif
+#if CONFIG_IDF_TARGET_ESP32C5
+    phy_chip_set_chan(frequency_mhz,rx_channel_mode);
+#else
     phy_chip_set_chan(frequency_mhz,0);
+#endif
     phy_stop_tx_tone(1);
     phy_pbus_workmode();
     phy_pbus_xpd_tx_off();
@@ -271,7 +278,14 @@ static void handle_command(char *line) {
         else if(!strcmp(line,"RANGE?")){reply(RX_TUNING_RANGE_REPLY);}
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
         else if(sscanf(line,"BANDWIDTH %u %c",&n,&extra)==1 && (!n || (n>=RX_BANDWIDTH_MIN && n<=RX_BANDWIDTH_MAX))) {
-            rx_analog_filter=rx_bandwidth_dcap(n);reply("OK\n");
+            rx_analog_filter=rx_bandwidth_dcap(n);
+#if CONFIG_IDF_TARGET_ESP32C5
+            unsigned mode=rx_bandwidth_phy_mode(n);
+            if(mode!=rx_channel_mode) {
+                rx_channel_mode=mode;rx_ready=false;prepare_rx();
+            }
+#endif
+            reply("OK\n");
         }
 #endif
         else if(!strcmp(line,"ALPF AUTO")){rx_analog_filter=-1;reply("OK\n");}
