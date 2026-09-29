@@ -2,14 +2,24 @@
 
 <img src="docs/espargos-logo.png" width="40%" align="right" alt="ESPARGOS logo">
 
-Receive-only I/Q snapshot firmware for ESP32 chips. Uses internal RAM; no PSRAM
-or extra peripherals required.
+ESP-SDR turns the ESP32's built-in 2.4 GHz Wi-Fi radio into a
+**software-defined radio (SDR)**. It lets you capture the radio signal itself
+and process it in software, so you can view the spectrum and study signals
+beyond ordinary Wi-Fi packets. No separate SDR hardware is needed. The
+ESP32-C5 also supports reception in the 5 GHz band.
 
-With the help of LLMs, we discovered an undocumented feature in Espressif's
-ESP32 chips that bypasses the fixed-function modems to capture raw IQ baseband
-samples. ESP-SDR uses this feature to turn supported chips into low-cost
-software-defined radio receivers for the 2.4 GHz band (and the 5 GHz band on
-the ESP32-C5).
+With the help of LLMs, we discovered an undocumented debug path that bypasses
+the chip's fixed-function Wi-Fi modem. This gives software access to raw
+radio samples, called **I/Q samples**, from the built-in receiver. ESP-SDR
+currently captures short bursts of these samples and sends them to your
+computer over USB or UART for analysis.
+
+<br clear="all">
+
+![ESP32 radio architecture: an undocumented debug path connects the ADC/DAC to the CPU, bypassing the fixed-function Wi-Fi modem.](docs/sdr-bypass.png)
+
+The diagram shows the hardware's receive and transmit paths; this firmware
+currently implements reception only.
 
 [Project overview](https://espargos.net/espsdr/) ·
 [Browser SDR viewer](https://espargos.net/espsdr/app/) ·
