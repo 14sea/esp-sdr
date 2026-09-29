@@ -1,22 +1,5 @@
 menu "ESP-SDR transport"
 
-    config ESP_SDR_TRANSPORT_ETHERNET
-        depends on !IDF_TARGET_ESP32S31
-        bool "Ethernet (HTTP control and UDP IQ)"
-        default y
-        help
-            Use the onboard YT8531 RGMII Ethernet PHY. The board obtains
-            its IPv4 address through DHCP and advertises esp-sdr.local.
-
-    config ESP_SDR_TRANSPORT_USB
-        depends on !IDF_TARGET_ESP32S31
-        bool "USB (vendor control and bulk IQ)"
-        help
-            Use the native high-speed USB-OTG device port with the
-            vendor-specific ESP-SDR control and IQ protocol. Ethernet and USB
-            may be enabled together; the most recently started stream owns the
-            shared receive engine.
-
     config ESP_SDR_UART_ENABLED
         bool "Burst UART0 I/Q transport" if !IDF_TARGET_ESP32
         depends on IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C61 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S31

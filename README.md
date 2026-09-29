@@ -1,5 +1,7 @@
 # ESP-SDR firmware
 
+<img src="docs/espargos-logo.png" width="40%" align="right" alt="ESPARGOS logo">
+
 Receive-only I/Q snapshot firmware for ESP32 chips. Uses internal RAM; no PSRAM
 or extra peripherals required.
 
@@ -65,6 +67,27 @@ idf.py -B build-s3 -p /dev/ttyACM0 flash
 
 Substitute the target and paths for your chip. S31 also requires `idf.py --preview`.
 
+## Source layout
+
+- `main/targets/<target>/`: chip receiver or adapter, tuning helpers, and the
+  linker guard for its capture SRAM. CMake selects only the requested target.
+- `main/families/c5_c6_c61/`: receiver shared by C5, C6, and C61; its `chip.h`
+  comes from the selected target directory.
+- `main/common/`: burst serial transport, gain control, limits, and bandwidth
+  helpers. The gain-table wrapper is linked only for C61 and S31.
+- `main/diagnostics/`: optional register probes, excluded from release exports.
+- `platform/esp32s2/`: pinned ROM USB CDC compatibility component.
+
+The application component and UART configuration stay in `main/`. Target SDK
+defaults stay at the repository root for the build tools and ESP-IDF defaults
+lookup. The firmware uses the burst protocol over UART/native USB; the former
+Ethernet and vendor USB streaming application is no longer included.
+
+Run `python3 -m unittest discover -s tests` for host checks. Build every profile
+with `tools/build_firmware.py` and its pinned SDK before distributing a change;
+the CI matrix does this automatically. Preserve the target SRAM guards and
+gain-table linker wrappers when moving or refactoring receiver code.
+
 ## Receive controls
 
 Hardware AGC is the default. `GAIN MANUAL <index>` sets manual gain;
@@ -72,20 +95,23 @@ Hardware AGC is the default. `GAIN MANUAL <index>` sets manual gain;
 bandwidths, sample rates and bit depths. `BANDWIDTH <MHz>` sets approximate
 analog bandwidth; zero selects the widest setting.
 
-- **ESP32:** tuning attempts over 2100–2800 MHz in 1 MHz steps; 80/40/16 MS/s.
-- **C3:** tuning attempts over 2100–2800 MHz in 1 MHz steps; 80 MS/s;
-  14–62 MHz analog bandwidth. Native USB tested; UART build-verified.
-- **C5:** 11–23 MHz bandwidth.
-- **C61:** tuning attempts over 2100–2800 MHz in 1 MHz steps; 80/40/20/10/8/4 MS/s;
-  13–54 MHz bandwidth.
-- **C6:** tuning attempts over 2100–2800 MHz; 80 MS/s; 12–54 MHz bandwidth.
-- **S2:** tuning attempts over 2212–2813 MHz; 80/40/16 MS/s;
-  15–60 MHz bandwidth; up to 12,284 complex samples per capture.
+All eight chips accept tuning attempts from **100–6000 MHz in 1 MHz steps**.
+The viewer shows an informational warning outside 2400–2483.5 MHz, with
+5150–5895 MHz also treated as the supported 5 GHz Wi-Fi band on C5. The warning never blocks tuning.
+These are software attempt limits; the expanded range has not been hardware
+validated.
+
+- **ESP32:** 80/40/16 MS/s.
+- **C3:** 80 MS/s; 14–62 MHz analog bandwidth.
+- **C5:** 11–23 MHz bandwidth; selects its 5 GHz RF path above 3000 MHz.
+- **C61:** 80/40/20/10/8/4 MS/s; 13–54 MHz bandwidth.
+- **C6:** 80 MS/s; 12–54 MHz bandwidth.
+- **S2:** 80/40/16 MS/s; 15–60 MHz bandwidth; up to 12,284 complex samples.
 - **S3:** 13–69 MHz bandwidth.
 - **S31:** 80/40/20/10/8/4 MS/s; 13–54 MHz bandwidth.
 
 Captures have gaps; nominal sample rates exceed sustained serial throughput.
 Gain and power are uncalibrated. Extended tuning does not guarantee PLL lock
-or reception; the viewer warns outside standard Wi-Fi centers.
+or reception; the viewer uses the ISM-band warning described above.
 
 See [receive-control details](docs/rx-controls.md).

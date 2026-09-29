@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "burst_serial.h"
+#include "rx_tuning.h"
 #include "rx_bandwidth.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -82,6 +83,7 @@ static void reply(const char *fmt, ...) {
 
 extern void phy_chip_set_chan(unsigned, unsigned);
 extern void phy_set_freq(unsigned, int);
+#include "tuning.h"
 extern void phy_loopback_mode_en(unsigned);
 extern void phy_bb_bss_cbw40_dig(unsigned);
 extern void phy_bb_cbw_chan_cfg(unsigned);
@@ -256,7 +258,7 @@ static void command(const char *line) {
     else if (!strcmp(line, "TRANSPORT?")) reply("TRANSPORT %s %u\n", burst_serial_port()==BURST_SERIAL_UART ? "UART" : "USB", burst_serial_baud());
     else if (!strcmp(line, "LIMITS?")) {
         reply("LIMITS {\"gain\":[0,%u,1],\"bandwidth\":[%u,%u,1,0],\"rates\":[80000000,40000000,20000000,10000000,8000000,4000000],\"bits\":[8,10]}\n", gain_max, RX_BANDWIDTH_MIN, RX_BANDWIDTH_MAX);
-    } else if (!strcmp(line, "RANGE?")) reply("RANGE 2300 2800 1\n");
+    } else if (!strcmp(line, "RANGE?")) reply(RX_TUNING_RANGE_REPLY);
     else if (sscanf(line, "SYNC %"SCNu64" %c", &nonce, &extra) == 1) reply("SYNC %"PRIu64"\n", nonce);
     else if (!strcmp(line, "RELEASE")) reply("OK\n");
     else if (!strcmp(line, "GAIN?")) reply("GAIN %s %d 0 %u %u\n",
@@ -265,10 +267,9 @@ static void command(const char *line) {
     else if (!strcmp(line, "GAIN HARDWARE")) { hardware_agc = true; apply_gain(); reply("OK\n"); }
     else if (sscanf(line, "GAIN MANUAL %u %c", &n, &extra) == 1 && n <= gain_max) {
         hardware_agc = false; gain_code = n; apply_gain(); reply("OK\n");
-    } else if (sscanf(line, "FREQ %u %c", &n, &extra) == 1 && n >= 2300 && n <= 2800) {
+    } else if (sscanf(line, "FREQ %u %c", &n, &extra) == 1 && rx_frequency_valid(n)) {
         frequency_mhz=n;
-        phy_chip_set_chan(n,0);
-        phy_set_freq(n,0);
+        s31_tune(n);
         prepare_rx(); apply_gain(); reply("OK\n");
     } else if (sscanf(line, "CAP16 %u %u %c", &n, &rate, &extra) == 2) capture_rate(n, rate, 8);
     else if (sscanf(line, "CAP20 %u %u %c", &n, &rate, &extra) == 2) capture_rate(n, rate, 10);
@@ -304,8 +305,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
     ESP_ERROR_CHECK(esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE));
-    phy_chip_set_chan(frequency_mhz,0);
-    phy_set_freq(frequency_mhz,0);
+    s31_tune(frequency_mhz);
     phy_loopback_mode_en(0);
     phy_bb_bss_cbw40_dig(0);
     phy_bb_cbw_chan_cfg(0);

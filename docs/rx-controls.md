@@ -25,7 +25,7 @@ selecting an uncalibrated second-table entry.
 ## Bandwidth implementation
 
 `BANDWIDTH <MHz>` interpolates the chip's capacitor-code curve in
-`main/rx_bandwidth.h`. Zero selects the widest setting, not filter bypass.
+`main/common/rx_bandwidth.h`. Zero selects the widest setting, not filter bypass.
 Out-of-range requests are rejected.
 
 | Chip | Approximate bandwidth | BBTOP registers | Code width |
@@ -54,13 +54,28 @@ C6 currently exposes only nominal 80 MS/s. Other tested clock/divider settings
 and dump sources did not establish a reliable lower-rate I/Q path. Unsupported
 rates are rejected.
 
-ESP32, C61, C6 and S2 advertise `TUNEEXT` and report whole-MHz attempt ranges through
-`RANGE?`: 2100–2800 MHz for ESP32/C61/C6 and 2212–2813 MHz for S2. Standard
-Wi-Fi centers use channel tuning. Other frequencies calibrate at 2412 MHz before programming
-the PLL directly, avoiding channel-number rounding. The viewer warns and
-continues capture outside standard centers. Requests outside the advertised
-range remain errors. PLL lock, sensitivity and absolute frequency accuracy
-are not guaranteed throughout these ranges.
+All eight chips advertise `TUNEEXT` and answer `RANGE?` with
+`RANGE 100 6000 1`: every integer MHz from 100 through 6000 is accepted for an
+attempt. Fractional MHz and values outside that software range are rejected.
+`main/common/rx_tuning.h` defines the shared limits. PLL lock is not a condition
+for accepting a tuning command.
+
+Out-of-channel requests calibrate on a standard channel before direct PLL
+programming. C5 calibrates at 2412 MHz or 5180 MHz, selecting its 5 GHz path
+above 3000 MHz, matching the pinned PHY's band selection. Its direct path uses
+`phy_set_rf_freq_offset` with the calibrated crystal selector (`phy_param[49]`);
+C5's `phy_set_freq` re-enters channel conversion and is deliberately bypassed.
+S31 likewise keeps arbitrary frequencies out of channel calibration.
+
+The browser negotiates ranges for every chip and uses them for text entry and
+spectrum click-to-tune. Older firmware retains its advertised limits, with
+legacy fallbacks only when it does not advertise `TUNEEXT`. An informational
+warning appears outside 2400–2483.5 MHz; C5 also excludes its 5150–5895 MHz Wi-Fi band from the
+warning. This never blocks tuning.
+
+The 100–6000 MHz expansion is host-test/build verified only. The historical
+hardware checks below covered the previous 2100–2800 MHz range; they do not
+validate the new endpoints or RF performance.
 
 ESP32 validation on an ESP32-D0WD-V3 rev. 3.1 with a 40 MHz crystal covered
 all 701 whole-MHz settings with CRC-checked captures, plus 132 maximum-size

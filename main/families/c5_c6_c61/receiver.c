@@ -1,4 +1,4 @@
-/* Shared ESP32-C5/C6/C61 burst receiver. Chip differences: c5_c61_chip.h. */
+/* Shared ESP32-C5/C6/C61 burst receiver. Chip differences: target-selected chip.h. */
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -22,8 +22,9 @@
 #ifndef CONFIG_IDF_TARGET_ESP32C6
 #define CONFIG_IDF_TARGET_ESP32C6 0
 #endif
-#include "c5_c61_chip.h"
+#include "chip.h"
 #include "burst_serial.h"
+#include "rx_tuning.h"
 extern void phy_stop_tx_tone(unsigned);
 extern void phy_pbus_workmode(void);
 extern void phy_pbus_xpd_rx_on(unsigned);
@@ -257,9 +258,7 @@ static void handle_command(char *line) {
 #endif
         else if(!strcmp(line,"CAPS")) {
             reply("CAPS RXLIMITS GAIN HWAGC IQ8 SERIALLEASE"
-#if CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
                   " TUNEEXT"
-#endif
 #if !CONFIG_IDF_TARGET_ESP32C6
                   " LPF LPF12"
 #endif
@@ -269,9 +268,7 @@ static void handle_command(char *line) {
 #endif
                   "\n");
         }
-#if CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
-        else if(!strcmp(line,"RANGE?")){reply("RANGE 2100 2800 1\n");}
-#endif
+        else if(!strcmp(line,"RANGE?")){reply(RX_TUNING_RANGE_REPLY);}
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
         else if(sscanf(line,"BANDWIDTH %u %c",&n,&extra)==1 && (!n || (n>=RX_BANDWIDTH_MIN && n<=RX_BANDWIDTH_MAX))) {
             rx_analog_filter=rx_bandwidth_dcap(n);reply("OK\n");

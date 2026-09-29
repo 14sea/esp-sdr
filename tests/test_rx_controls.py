@@ -12,7 +12,7 @@ class RxControls(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'check.c';path.write_text(source)
             exe=Path(tmp)/'check'
-            subprocess.run(['cc','-std=c11','-I'+str(ROOT/'main'),*flags,str(path),'-o',str(exe)],check=True)
+            subprocess.run(['cc','-std=c11','-I'+str(ROOT/'main/common'),*flags,str(path),'-o',str(exe)],check=True)
             subprocess.run([str(exe)],check=True)
 
     def test_bandwidth_curves_and_interpolation(self):
@@ -94,7 +94,7 @@ int main(void) {
 ''')
 
     def test_original_esp32_filter_restores_calibration(self):
-        source=(ROOT/'main/esp32_main.c').read_text()
+        source=(ROOT/'main/targets/esp32/receiver.c').read_text()
         functions=source[source.index('static int rx_filter'):source.index('extern void rom_pbus_workmode')]
         self.compile_run(r'''
 #include <assert.h>
@@ -121,7 +121,7 @@ int main(void){
 ''')
 
     def test_c3_filter_restores_calibration(self):
-        source=(ROOT/'main/c3_main.c').read_text()
+        source=(ROOT/'main/targets/esp32c3/receiver.c').read_text()
         functions=source[source.index('static int rx_filter'):source.index('static unsigned frequency_mhz')]
         self.compile_run(r'''
 #include <assert.h>

@@ -8,7 +8,7 @@ import unittest
 class ReceiveCommands(unittest.TestCase):
     @unittest.skipUnless(shutil.which('cc'), 'Host C compiler unavailable')
     def test_rx_commands_and_removed_transmit_commands(self):
-        source=(Path(__file__).resolve().parents[1]/'main/s3_main.c').read_text()
+        source=(Path(__file__).resolve().parents[1]/'main/targets/esp32s3/receiver.c').read_text()
         handler=source[source.index('static void handle_command('):source.index('void app_main(')]
         stub=r'''
 #include <assert.h>
@@ -20,8 +20,9 @@ class ReceiveCommands(unittest.TestCase):
 #define IQ_WORDS 16380u
 #define CONFIG_IDF_TARGET_ESP32S3 1
 #include "rx_bandwidth.h"
-#define S3_FREQ_MIN 2212u
-#define S3_FREQ_MAX 2813u
+#include "rx_tuning.h"
+#define S3_FREQ_MIN RX_FREQ_MIN
+#define S3_FREQ_MAX RX_FREQ_MAX
 #define CONFIG_ESP_SDR_UART_ENABLED 1
 static unsigned frequency_mhz, captures, last_format;
 static int rx_filter;
@@ -61,5 +62,5 @@ int main(void) {
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'commands.c';path.write_text(stub+handler+check)
             binary=Path(tmp)/'commands'
-            subprocess.run(['cc','-std=c11','-I'+str(Path(__file__).resolve().parents[1]/'main'),str(path),'-o',str(binary)],check=True)
+            subprocess.run(['cc','-std=c11','-I'+str(Path(__file__).resolve().parents[1]/'main/common'),str(path),'-o',str(binary)],check=True)
             subprocess.run([str(binary)],check=True)

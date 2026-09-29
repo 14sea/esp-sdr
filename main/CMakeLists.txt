@@ -1,77 +1,49 @@
-set(esp_sdr_supported_targets esp32c3 esp32s2 esp32 esp32c5 esp32s3 esp32s31 esp32c61 esp32c6)
+set(esp_sdr_supported_targets esp32 esp32c3 esp32c5 esp32c6 esp32c61 esp32s2 esp32s3 esp32s31)
 if(NOT IDF_TARGET IN_LIST esp_sdr_supported_targets)
-    message(FATAL_ERROR "No ESP-SDR RF backend for ${IDF_TARGET}. Generic board firmware is available for esp32c5, esp32c6, esp32c61 and esp32s3; esp32s31 use their existing specialized backends.")
+    message(FATAL_ERROR "No ESP-SDR RF backend for ${IDF_TARGET}. Supported targets: ${esp_sdr_supported_targets}")
 endif()
 
 option(SAMPLE_RATE_PROBE "Build volatile hardware sample-rate diagnostics (never package)" OFF)
 
-if(IDF_TARGET STREQUAL "esp32c3")
-    idf_component_register(SRCS "c3_main.c" "burst_serial.c"
-        REQUIRES esp_phy esp_wifi nvs_flash esp_timer esp_driver_usb_serial_jtag esp_driver_uart)
-    target_link_options(${COMPONENT_LIB} INTERFACE "-T${CMAKE_CURRENT_LIST_DIR}/c3_sram_guard.ld")
-    return()
-endif()
+set(target_dir "targets/${IDF_TARGET}")
+set(receiver "${target_dir}/receiver.c")
+set(sources "common/burst_serial.c")
+set(dependencies esp_phy esp_wifi nvs_flash esp_timer esp_driver_uart)
+set(probes)
 
 if(IDF_TARGET STREQUAL "esp32s2")
-    idf_component_register(SRCS "s2_main.c" "burst_serial.c"
-        REQUIRES esp_phy esp_wifi nvs_flash esp_timer esp_usb_cdc_rom_console esp_driver_uart)
-    if(S2_RF_PROBE)
-        target_compile_definitions(${COMPONENT_LIB} PRIVATE S2_RF_PROBE=1)
-    endif()
-    target_link_options(${COMPONENT_LIB} INTERFACE "-T${CMAKE_CURRENT_LIST_DIR}/s2_sram_guard.ld")
-    return()
-endif()
-
-if(IDF_TARGET STREQUAL "esp32s31")
-    idf_component_register(SRCS "s31_main.c" "burst_serial.c" "burst_gain_table.c"
-        REQUIRES esp_phy esp_wifi nvs_flash esp_timer esp_driver_usb_serial_jtag esp_driver_uart)
-    target_link_options(${COMPONENT_LIB} INTERFACE "-T${CMAKE_CURRENT_LIST_DIR}/s31_sram_guard.ld" "-Wl,--wrap=phy_write_gain_mem")
-    return()
-endif()
-
-if(IDF_TARGET STREQUAL "esp32")
-    idf_component_register(SRCS "esp32_main.c" "burst_serial.c"
-        REQUIRES esp_phy esp_wifi nvs_flash esp_timer esp_driver_uart)
-    target_link_options(${COMPONENT_LIB} INTERFACE "-T${CMAKE_CURRENT_LIST_DIR}/esp32_sram_guard.ld")
-    return()
+    list(APPEND dependencies esp_usb_cdc_rom_console)
+    list(APPEND probes S2_RF_PROBE)
+elseif(NOT IDF_TARGET STREQUAL "esp32")
+    list(APPEND dependencies esp_driver_usb_serial_jtag)
 endif()
 
 if(IDF_TARGET STREQUAL "esp32s3")
-    idf_component_register(SRCS "s3_main.c" "burst_serial.c"
-        REQUIRES esp_phy esp_wifi nvs_flash esp_timer esp_driver_usb_serial_jtag esp_driver_uart)
-    if(SAMPLE_RATE_PROBE)
-        target_compile_definitions(${COMPONENT_LIB} PRIVATE SAMPLE_RATE_PROBE=1)
-    endif()
-    if(FILTER_REGISTER_PROBE)
-        target_compile_definitions(${COMPONENT_LIB} PRIVATE FILTER_REGISTER_PROBE=1)
-    endif()
-    if(S3_RF_PROBE)
-        target_compile_definitions(${COMPONENT_LIB} PRIVATE S3_RF_PROBE=1)
-    endif()
-    target_link_options(${COMPONENT_LIB} INTERFACE "-T${CMAKE_CURRENT_LIST_DIR}/s3_sram_guard.ld")
-    return()
-endif()
-
-if(IDF_TARGET STREQUAL "esp32c6" OR IDF_TARGET STREQUAL "esp32c5" OR IDF_TARGET STREQUAL "esp32c61")
+    list(APPEND probes SAMPLE_RATE_PROBE FILTER_REGISTER_PROBE S3_RF_PROBE)
+elseif(IDF_TARGET STREQUAL "esp32c5" OR IDF_TARGET STREQUAL "esp32c6" OR IDF_TARGET STREQUAL "esp32c61")
+    set(receiver "families/c5_c6_c61/receiver.c")
     if(IDF_TARGET STREQUAL "esp32c6" AND FILTER_REGISTER_PROBE)
         message(FATAL_ERROR "Filter register diagnostics are not characterized for C6")
     endif()
-    idf_component_register(SRCS "c5_c61_main.c" "burst_serial.c"
-        REQUIRES esp_phy esp_wifi nvs_flash esp_timer esp_driver_usb_serial_jtag esp_driver_uart)
-    if(SAMPLE_RATE_PROBE)
-        target_compile_definitions(${COMPONENT_LIB} PRIVATE SAMPLE_RATE_PROBE=1)
-    endif()
-    if(FILTER_REGISTER_PROBE)
-        target_compile_definitions(${COMPONENT_LIB} PRIVATE FILTER_REGISTER_PROBE=1)
-    endif()
-    target_link_options(${COMPONENT_LIB} INTERFACE
-        "-T${CMAKE_CURRENT_LIST_DIR}/${IDF_TARGET}_sram_guard.ld")
-    if(IDF_TARGET STREQUAL "esp32c61")
-        target_sources(${COMPONENT_LIB} PRIVATE "burst_gain_table.c")
-        target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=phy_write_gain_mem")
-    endif()
-    if(C5_TUNE_PROBE)
-        target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_TUNE_PROBE=1)
-    endif()
-    return()
+    list(APPEND probes SAMPLE_RATE_PROBE FILTER_REGISTER_PROBE C5_TUNE_PROBE)
 endif()
+
+if(IDF_TARGET STREQUAL "esp32c61" OR IDF_TARGET STREQUAL "esp32s31")
+    list(APPEND sources "common/burst_gain_table.c")
+endif()
+
+idf_component_register(SRCS "${receiver}" ${sources}
+    PRIV_INCLUDE_DIRS "common" "${target_dir}" "diagnostics"
+    REQUIRES ${dependencies})
+
+# Keep the linker guard beside the backend whose SRAM aperture it protects.
+target_link_options(${COMPONENT_LIB} INTERFACE
+    "-T${CMAKE_CURRENT_LIST_DIR}/${target_dir}/sram_guard.ld")
+if(IDF_TARGET STREQUAL "esp32c61" OR IDF_TARGET STREQUAL "esp32s31")
+    target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=phy_write_gain_mem")
+endif()
+foreach(probe IN LISTS probes)
+    if(${probe})
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE "${probe}=1")
+    endif()
+endforeach()

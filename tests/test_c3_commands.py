@@ -10,11 +10,12 @@ class C3Commands(unittest.TestCase):
     @unittest.skipUnless(shutil.which('cc'), 'Host C compiler unavailable')
     def test_commands(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / 'main/c3_main.c').read_text()
+        source = (root / 'main/targets/esp32c3/receiver.c').read_text()
         frequency = source[source.index('#define C3_FREQ_MIN'):source.index('#define send_bytes')]
         handler = source[source.index('static void handle_command('):source.index('void app_main(')]
         stub = r'''
 #include <assert.h>
+#include "rx_tuning.h"
 #include <stdbool.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -61,15 +62,15 @@ int main(void) {
  }
  const char *bad[]={"CAP16 16381 0","CAP20 255 0","CAP20 256 0 junk",
  "RXRUN 256 0 0 20","RXRUN 256 0 1001 20","RXRUN 256 0 2 32","FREQ 2412 junk",
- "FREQ 2412.5","FREQ 2099","FREQ 2801","FREQ 5180","GAIN AUTO","BANDWIDTH 13","BANDWIDTH 63","BANDWIDTH 20 junk",
+ "FREQ 2412.5","FREQ 99","FREQ 6001","FREQ 6001","GAIN AUTO","BANDWIDTH 13","BANDWIDTH 63","BANDWIDTH 20 junk",
  "TX20 256 1000000 0","CW START","REPLAY20 256 40000000 0"};
  for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);i++){command(bad[i]);assert(!strcmp(response,"ERR command\n"));}
  assert(captures==4);
  for(unsigned f=2412;f<=2472;f+=5){
    char c[40];snprintf(c,sizeof(c),"FREQ %u",f);command(c);assert(frequency_mhz==f && rx_ready);
  }
- command("RANGE?");assert(!strcmp(response,"RANGE 2100 2800 1\n"));
- for(unsigned f=2100;f<=2800;f++){
+ command("RANGE?");assert(!strcmp(response,"RANGE 100 6000 1\n"));
+ for(unsigned f=100;f<=6000;f++){
    char c[40];snprintf(c,sizeof(c),"FREQ %u",f);command(c);assert(frequency_mhz==f);
    bool channel=(f>=2412 && f<=2472 && (f-2412)%5==0)||f==2484;
    unsigned before=pll_writes;tune_rx(f);
@@ -87,5 +88,5 @@ int main(void) {
             path = Path(tmp) / 'commands.c'
             path.write_text(stub + frequency + handler + checks)
             binary = Path(tmp) / 'commands'
-            subprocess.run(['cc', '-std=c11', '-I'+str(root/'main'), str(path), '-o', str(binary)], check=True)
+            subprocess.run(['cc', '-std=c11', '-I'+str(root/'main/common'), str(path), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True)

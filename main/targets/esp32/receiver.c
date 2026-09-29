@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "burst_serial.h"
+#include "rx_tuning.h"
 #include "rx_bandwidth.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -182,7 +183,7 @@ static void command(const char *line) {
     else if (!strcmp(line, "TRANSPORT?")) reply("TRANSPORT UART %u\n", burst_serial_baud());
     else if (!strcmp(line, "LIMITS?")) {
         reply("LIMITS {\"gain\":[0,%u,1],\"bandwidth\":[%u,%u,1,0],\"rates\":[80000000,40000000,16000000],\"bits\":[8,10]}\n", gain_max, RX_BANDWIDTH_MIN, RX_BANDWIDTH_MAX);
-    } else if (!strcmp(line, "RANGE?")) reply("RANGE 2100 2800 1\n");
+    } else if (!strcmp(line, "RANGE?")) reply(RX_TUNING_RANGE_REPLY);
     else if (sscanf(line, "SYNC %"SCNu64" %c", &nonce, &extra) == 1) reply("SYNC %"PRIu64"\n", nonce);
     else if (!strcmp(line, "RELEASE")) reply("OK\n");
     else if (!strcmp(line, "GAIN?")) reply("GAIN %s %d 0 %u %u\n",
@@ -191,7 +192,7 @@ static void command(const char *line) {
     else if (!strcmp(line, "GAIN HARDWARE")) { hardware_agc = true; apply_gain(); reply("OK\n"); }
     else if (sscanf(line, "GAIN MANUAL %u %c", &n, &extra) == 1 && n <= gain_max) {
         hardware_agc = false; gain_code = n; apply_gain(); reply("OK\n");
-    } else if (sscanf(line, "FREQ %u %c", &n, &extra) == 1 && n >= 2100 && n <= 2800) {
+    } else if (sscanf(line, "FREQ %u %c", &n, &extra) == 1 && rx_frequency_valid(n)) {
         tune_rx(n);
         prepare_rx(); apply_gain(); reply("OK\n");
     } else if (sscanf(line, "CAP16 %u %u %c", &n, &rate, &extra) == 2) capture_rate(n, rate, 8);

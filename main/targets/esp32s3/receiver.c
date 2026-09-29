@@ -18,6 +18,7 @@
 #include "soc/soc.h"
 
 #include "burst_serial.h"
+#include "rx_tuning.h"
 
 /* Vendor S3 adctrig uses this 64 KiB aperture with MAC_DUMP_USAGE=4.
  * Keep both its DRAM and IRAM aliases out of the heap and static sections. */
@@ -44,8 +45,8 @@ static void s3_tune(unsigned mhz) {
     if(!channel)set_rf_freq_offset(0,mhz,0); /* 40 MHz crystal; direct PLL MHz. */
 }
 
-#define S3_FREQ_MIN 2212u
-#define S3_FREQ_MAX 2813u
+#define S3_FREQ_MIN RX_FREQ_MIN
+#define S3_FREQ_MAX RX_FREQ_MAX
 static unsigned frequency_mhz=2412;
 static bool rx_ready;
 #ifdef S3_RF_PROBE

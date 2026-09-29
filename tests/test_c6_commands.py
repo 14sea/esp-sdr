@@ -8,7 +8,7 @@ import unittest
 class C6Commands(unittest.TestCase):
     @unittest.skipUnless(shutil.which('cc'), 'Host C compiler unavailable')
     def test_c6(self):
-        source=(Path(__file__).resolve().parents[1]/'main/c5_c61_main.c').read_text()
+        source=(Path(__file__).resolve().parents[1]/'main/families/c5_c6_c61/receiver.c').read_text()
         handler=source[source.index('static void handle_command(char *line) {'):]
         stub=r'''
 #include <assert.h>
@@ -20,6 +20,7 @@ class C6Commands(unittest.TestCase):
 #define IQ_WORDS 16380u
 #define RX_FILTER_REG 4u
 #include "rx_bandwidth.h"
+#include "rx_tuning.h"
 #define CONFIG_ESP_SDR_UART_ENABLED 1
 #if CONFIG_IDF_TARGET_ESP32C61
 #define BURST_ID "C61SDR"
@@ -44,7 +45,7 @@ static bool frequency_valid(unsigned f) {
 #if CONFIG_IDF_TARGET_ESP32C61
 return f>=2400 && f<=2500;
 #else
-return f>=2100 && f<=2800;
+return rx_frequency_valid(f);
 #endif
 }
 '''
@@ -64,21 +65,20 @@ int main(void) {
  for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);i++){command(bad[i]);assert(!strcmp(response,"ERR command\n"));}
  assert(captures==4);
  command("FREQ 2412");assert(frequency_mhz==2412 && rx_ready);
- command("FREQ 5180");assert(frequency_mhz==2412);
+ command("FREQ 5180");assert(frequency_mhz==5180);
  for(unsigned d=1;d<=5;d++){char c[40];snprintf(c,sizeof(c),"CAP20 256 %u",d);command(c);assert(!strcmp(response,"ERR command\n"));}
  command("LPF 12");assert(!strcmp(response,"ERR command\n"));
  command("ALPF 63");assert(rx_analog_filter==63);
  command("ALPF AUTO");assert(rx_analog_filter==-1);
  command("ALPF 64");assert(!strcmp(response,"ERR command\n"));
- command("RANGE?");assert(!strcmp(response,"RANGE 2100 2800 1\n"));
+ command("RANGE?");assert(!strcmp(response,"RANGE 100 6000 1\n"));
  command("CAPS");assert(strstr(response,"TUNEEXT"));
- const unsigned extended[]={2100,2300,2402,2426,2480,2500,2800};
- for(unsigned i=0;i<sizeof(extended)/sizeof(extended[0]);i++){
-   char c[40];snprintf(c,sizeof(c),"FREQ %u",extended[i]);command(c);
-   assert(!strcmp(response,"OK\n") && frequency_mhz==extended[i] && rx_ready);
+ for(unsigned f=100;f<=6000;f++){
+   char c[40];snprintf(c,sizeof(c),"FREQ %u",f);command(c);
+   assert(!strcmp(response,"OK\n") && frequency_mhz==f && rx_ready);
  }
- command("FREQ 2099");assert(!strcmp(response,"ERR command\n"));
- command("FREQ 2801");assert(!strcmp(response,"ERR command\n"));
+ command("FREQ 99");assert(!strcmp(response,"ERR command\n"));
+ command("FREQ 6001");assert(!strcmp(response,"ERR command\n"));
  command("BANDWIDTH 0");assert(rx_analog_filter==0);
  command("BANDWIDTH 54");assert(rx_analog_filter==0);
  command("BANDWIDTH 12");assert(rx_analog_filter==60);
@@ -96,5 +96,5 @@ int main(void) {
             path=Path(tmp)/'commands.c';path.write_text(stub+handler+check)
             for c61 in [0]:
                 binary=Path(tmp)/f'commands-{c61}'
-                subprocess.run(['cc','-std=c11','-DCONFIG_IDF_TARGET_ESP32C6=1','-I'+str(Path(__file__).resolve().parents[1]/'main'),f'-DCONFIG_IDF_TARGET_ESP32C61={c61}','-DCONFIG_IDF_TARGET_ESP32C5=0',str(path),'-o',str(binary)],check=True)
+                subprocess.run(['cc','-std=c11','-DCONFIG_IDF_TARGET_ESP32C6=1','-I'+str(Path(__file__).resolve().parents[1]/'main/common'),f'-DCONFIG_IDF_TARGET_ESP32C61={c61}','-DCONFIG_IDF_TARGET_ESP32C5=0',str(path),'-o',str(binary)],check=True)
                 subprocess.run([str(binary)],check=True)

@@ -8,7 +8,7 @@ import unittest
 class BurstGain(unittest.TestCase):
     @unittest.skipUnless(shutil.which('cc'), 'Host C compiler unavailable')
     def test_hardware_default_manual_selection_and_removed_software_command(self):
-        header = Path(__file__).resolve().parents[1] / 'main/burst_gain.h'
+        header = Path(__file__).resolve().parents[1] / 'main/common/burst_gain.h'
         code = r'''#include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>

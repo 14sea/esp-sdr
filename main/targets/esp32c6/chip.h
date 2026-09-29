@@ -1,3 +1,7 @@
+#pragma once
+#include "rx_tuning.h"
+#define SRAM_OWNER_REG 0x60095004u
+#define IQ_WORDS 16380u
 /* C6 stock librftest adctrig uses SRAM bank 2 and source 15. */
 #define BURST_ID "C6SDR"
 #define IQ_BUFFER ((uint32_t *)0x40840000)
@@ -20,7 +24,7 @@ static void c6_set_chan(unsigned mhz,unsigned mode) {
 #define phy_chip_i2c_readReg rom_chip_i2c_readReg
 #define phy_i2c_writeReg rom_chip_i2c_writeReg
 static bool frequency_valid(unsigned f) {
- return f>=2100 && f<=2800; /* Attempt range, not a guarantee of PLL lock. */
+ return rx_frequency_valid(f);
 }
 static bool stock_capture(unsigned n,unsigned divider) {
  if(divider)return false; /* Only the 80 MS/s source-15 path is verified. */

@@ -16,6 +16,7 @@
 #include "soc/soc.h"
 
 #include "burst_serial.h"
+#include "rx_tuning.h"
 
 /* Pinned C3 librftest adctrig: 64 KiB at 0x3fcb0000, usage=2,
  * allocation bit 3. Reserve the FULL 128 KiB bank and its IRAM alias:
@@ -47,8 +48,8 @@ static void rx_filter_restore(void) {
 }
 static unsigned frequency_mhz=2412;
 static bool rx_ready;
-#define C3_FREQ_MIN 2100u
-#define C3_FREQ_MAX 2800u
+#define C3_FREQ_MIN RX_FREQ_MIN
+#define C3_FREQ_MAX RX_FREQ_MAX
 static bool frequency_valid(unsigned mhz) {
     return mhz>=C3_FREQ_MIN && mhz<=C3_FREQ_MAX;
 }

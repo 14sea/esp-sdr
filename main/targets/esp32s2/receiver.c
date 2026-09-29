@@ -18,6 +18,7 @@
 #include "soc/soc.h"
 
 #include "burst_serial.h"
+#include "rx_tuning.h"
 
 /* S2 vendor adctrig uses SRAM at 0x3fff0000 with owner mask 7.
  * Reserve the first three 16 KiB banks and both CPU aliases. Leave the top
@@ -45,8 +46,8 @@ static void s2_tune(unsigned mhz) {
     if(!channel)rom_set_rf_freq_offset(0,mhz,0); /* 40 MHz crystal; direct PLL MHz. */
 }
 
-#define S2_FREQ_MIN 2212u
-#define S2_FREQ_MAX 2813u
+#define S2_FREQ_MIN RX_FREQ_MIN
+#define S2_FREQ_MAX RX_FREQ_MAX
 static unsigned frequency_mhz=2412;
 static bool rx_ready;
 #ifdef S2_RF_PROBE
