@@ -166,7 +166,7 @@ static void handle_command(char *line) {
         if(ok)reply("END\n");
     }
     else if(!strcmp(line,"CAPS")) {
-        reply("CAPS RXLIMITS SERIALLEASE "
+        reply("CAPS UARTBAUD RXLIMITS SERIALLEASE "
 #if CONFIG_ESP_SDR_UART_ENABLED
               "DUALSERIAL "
 #endif

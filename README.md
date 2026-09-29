@@ -46,20 +46,30 @@ While we have a very good understanding of how the IQ sampling functionality wor
 | ESP32-S3 | ✅ Supported | Serial/JTAG | GPIO43 / GPIO44 | 2 MB |
 | ESP32-S31 | ✅ Supported | Serial/JTAG | GPIO58 / GPIO59 | 2 MB |
 
-## Connect
+## Commands and transport
 
-Use native USB or a 3.3 V USB-to-UART adapter with crossed TX/RX and common
-ground. UART defaults to **2,000,000 baud, 8N1, no flow control** on the pins
-above. Native USB ignores the host baud setting.
+Connect over native USB or a 3.3 V USB-to-UART adapter with crossed TX/RX
+and common ground, using the pins above. Both interfaces carry the same
+request/response protocol: send newline-terminated ASCII commands and read
+text replies. Capture replies also include a binary I/Q payload.
 
-Configure UART with the `ESP_SDR_UART_*` menuconfig options.
-C5 UART requires a firmware build with UART support; older USB-only images
-must be reflashed. See [C5 debugging results](docs/c5-debug.md).
-S2 UART is build-verified but untested with an adapter; reflash older USB-only
-images to enable it.
+Query `INFO` and `CAPS` to identify the firmware and supported features.
+`LIMITS?` reports receive-control limits, `RANGE?` reports the tuning range,
+and `TRANSPORT?` identifies the active interface. Configure reception with
+`FREQ <MHz>`, `BANDWIDTH <MHz>` and `GAIN` commands.
 
-One client controls the radio at a time. `RELEASE` or five seconds of idle time
-releases it; other clients receive `ERR busy`.
+Request a snapshot with `CAP16 <samples> <rate-index>` for signed 8-bit I/Q
+or `CAP20 <samples> <rate-index>` for packed signed 10-bit I/Q. The reply is
+`DATA <samples> <crc32-hex> <capture-microseconds>`, followed by exactly
+`ceil(samples × bits-per-component × 2 / 8)` binary bytes. Verify the
+payload CRC32 before using the samples. Rate indices 0–6 select 80, 40, 20, 10,
+8, 4 or 16 MS/s respectively; use only rates advertised by `LIMITS?`.
+
+Finish reading each reply before sending another command. Failures return
+`ERR <reason>`. `SYNC <nonce>` echoes the nonce to let clients resynchronize
+after an incomplete transfer. One client controls the radio at a time;
+`RELEASE` or five seconds of idle time releases it, while other clients
+receive `ERR busy`.
 
 ## Build and flash
 

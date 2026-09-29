@@ -2,6 +2,7 @@
 #include "burst_serial.h"
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 #include "driver/uart.h"
 #include "esp_attr.h"
 #include "esp_check.h"
@@ -24,12 +25,48 @@
 #define COMMAND_SIZE 128
 static burst_serial_port_t active_port = BURST_SERIAL_USB;
 static unsigned next_port;
+static unsigned uart_baud = CONFIG_ESP_SDR_UART_BAUD;
 static struct {
     char line[COMMAND_SIZE];
     size_t used;
     bool overflow;
     int64_t last_byte;
 } input[BURST_SERIAL_COUNT];
+
+/* Transport commands are consumed here for every receiver backend. The ACK
+ * is completely transmitted at the old rate before changing UART0. The rate
+ * is session-only; every boot starts with CONFIG_ESP_SDR_UART_BAUD. */
+static bool baud_command(const char *line) {
+    if (strcmp(line, "BAUD?") && strcmp(line, "BAUD") && strncmp(line, "BAUD ", 5)) return false;
+#if CONFIG_ESP_SDR_UART_ENABLED
+    if (active_port == BURST_SERIAL_UART) {
+        char response[32];
+        if (!strcmp(line, "BAUD?")) {
+            int length = snprintf(response, sizeof(response), "BAUD %u\n", uart_baud);
+            burst_serial_send(response, length);
+            return true;
+        }
+        unsigned baud = !strcmp(line, "BAUD 1000000") ? 1000000 :
+                        !strcmp(line, "BAUD 2000000") ? 2000000 : 0;
+        if (!baud) {
+            burst_serial_send("ERR baud_args\n", sizeof("ERR baud_args\n")-1);
+            return true;
+        }
+        int length = snprintf(response, sizeof(response), "OK BAUD %u\n", baud);
+        if (!burst_serial_send(response, length) ||
+            uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(1000)) != ESP_OK ||
+            uart_set_baudrate(UART_NUM_0, baud) != ESP_OK) {
+            return true;
+        }
+        uart_baud = baud;
+        uart_flush_input(UART_NUM_0);
+        memset(&input[BURST_SERIAL_UART], 0, sizeof(input[BURST_SERIAL_UART]));
+        return true;
+    }
+#endif
+    burst_serial_send("ERR baud_transport\n", sizeof("ERR baud_transport\n")-1);
+    return true;
+}
 
 #if CONFIG_IDF_TARGET_ESP32S2
 static void usb_ready(void *arg) { (void)arg; }
@@ -39,8 +76,9 @@ void burst_serial_init(void) {
     ESP_ERROR_CHECK(esp_usb_console_set_cb(usb_ready,usb_ready,NULL));
 #endif
 #if CONFIG_ESP_SDR_UART_ENABLED
+    uart_baud = CONFIG_ESP_SDR_UART_BAUD;
     const uart_config_t config = {
-        .baud_rate = CONFIG_ESP_SDR_UART_BAUD,
+        .baud_rate = uart_baud,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
@@ -60,7 +98,7 @@ void burst_serial_init(void) {
 
 burst_serial_port_t burst_serial_port(void) { return active_port; }
 unsigned burst_serial_baud(void) {
-    return active_port == BURST_SERIAL_UART ? CONFIG_ESP_SDR_UART_BAUD : 0;
+    return active_port == BURST_SERIAL_UART ? uart_baud : 0;
 }
 
 static int read_port(burst_serial_port_t port, void *buffer, size_t size) {
@@ -110,6 +148,7 @@ int burst_serial_poll_line(char *line, size_t capacity) {
             if (overflow || used >= capacity) return -1;
             memcpy(line, input[port].line, used);
             line[used] = '\0';
+            if (baud_command(line)) return 0;
             return 1;
         }
     }
@@ -120,7 +159,7 @@ static int64_t transfer_deadline(size_t size) {
     /* 8N1 needs ten wire bits per byte. Leave two seconds for host scheduling,
      * including full frames at a deliberately reduced UART baud rate. */
     int64_t timeout = active_port == BURST_SERIAL_UART
-        ? 2000000 + (int64_t)size * 10000000 / CONFIG_ESP_SDR_UART_BAUD
+        ? 2000000 + (int64_t)size * 10000000 / uart_baud
         : 3000000;
     return esp_timer_get_time() + timeout;
 }

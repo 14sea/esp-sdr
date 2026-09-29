@@ -17,6 +17,8 @@ menu "ESP-SDR transport"
         help
             The burst I/Q protocol is also available on UART0, 8N1, without
             hardware flow control. The browser baud rate must match this value.
+            BAUD 1000000 and BAUD 2000000 can change the running UART rate.
+            Resetting the board restores this configured default.
 
     config ESP_SDR_UART_TX_PIN
         int "Burst UART0 TX GPIO"

@@ -264,7 +264,7 @@ static void handle_command(char *line) {
         else if(sscanf(line,"ADCCLOCK %u %c",&n,&extra)==1 && (n<2 || n==4)) {probe_adc=n;reply("OK\n");}
 #endif
         else if(!strcmp(line,"CAPS")) {
-            reply("CAPS RXLIMITS GAIN HWAGC IQ8 SERIALLEASE"
+            reply("CAPS UARTBAUD RXLIMITS GAIN HWAGC IQ8 SERIALLEASE"
                   " TUNEEXT"
 #if !CONFIG_IDF_TARGET_ESP32C6
                   " LPF LPF12"

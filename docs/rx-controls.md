@@ -47,7 +47,7 @@ conditions and digital filtering affect them; they do not guarantee alias-free
 reception at every sample rate. C5 uses PHY mode 0 for 11–23 MHz and mode 1
 for 24–48 MHz or open. Changing modes runs the complete channel calibration,
 including PBUS analog-control tables; retuning preserves the chosen mode. Its
-curves include the digital-filter response. See the [C5 investigation](c5-debug.md).
+curves include the digital-filter response.
 ESP32's widest settings exceed the characterized span;
 its numeric maximum uses code 8, while wide open selects code 0.
 
