@@ -18,6 +18,7 @@
 #include "soc/soc.h"
 
 #include "burst_serial.h"
+#include "spectrum.h"
 #include "rx_tuning.h"
 
 /* S2 vendor adctrig uses SRAM at 0x3fff0000 with owner mask 7.
@@ -130,7 +131,7 @@ static unsigned probe_source,probe_clock,probe_adc=4;
 extern void rom_dac_rate_set(unsigned);
 static bool probe_capture;
 #endif
-static bool capture(unsigned n,unsigned divider,unsigned format) {
+static bool acquire_iq(unsigned n,unsigned divider,unsigned *capture_us) {
     if(divider!=0 && divider!=1 && divider!=6){reply("ERR rate\n");return false;}
     prepare_rx();
     
@@ -172,15 +173,35 @@ static bool capture(unsigned n,unsigned divider,unsigned format) {
     for(unsigned j=0;j<n;j++) {
         if(IQ_BUFFER[j]==0xa5a0055au){reply("ERR capture_timeout\n");return false;}
     }
+    *capture_us = elapsed;
+    return true;
+}
+
+static bool spectrum_acquire(unsigned n, unsigned rate, const uint32_t **data, unsigned *elapsed) {
+    bool ok = acquire_iq(n, rate, elapsed);
+    *data = IQ_BUFFER;
+    return ok;
+}
+
+#include "ring_probe.h"
+
+static bool capture(unsigned n,unsigned divider,unsigned format) {
+    unsigned elapsed;
+    if (!acquire_iq(n, divider, &elapsed)) return false;
     size_t bytes=wire_size(n,format);
     if(format==16)pack_iq8(n);else if(format==20)pack_iq(n);
     uint32_t crc=esp_rom_crc32_le(0,(const uint8_t *)IQ_BUFFER,bytes);
     char h[96];
-    snprintf(h,sizeof(h),"DATA %u %08" PRIx32 " %" PRIu32 "\n",n,crc,elapsed);
+    snprintf(h,sizeof(h),"DATA %u %08" PRIx32 " %" PRIu32 "\n",n,crc,(uint32_t)elapsed);
     return send_bytes(h,strlen(h)) && send_bytes(IQ_BUFFER,bytes);
 }
 
+
 static void handle_command(char *line) {
+#ifdef RING_PROBE
+    if(ring_probe_command(line)) return;
+#endif
+    if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
     if(!strcmp(line,"TRANSPORT?")) {
         char answer[64];
         snprintf(answer,sizeof(answer),"TRANSPORT %s %u\n",
@@ -214,7 +235,7 @@ static void handle_command(char *line) {
         else if(!strcmp(line,"ADCCLOCK?")){char h[64];snprintf(h,sizeof(h),"ADC %u\n",rom_chip_i2c_readReg(0x66,0,4));reply(h);}
 #endif
         else if(!strcmp(line,"CAPS")) {
-            reply("CAPS UARTBAUD RXLIMITS SERIALLEASE "
+            reply("CAPS SPEC SPECN SPECCAPS UARTBAUD RXLIMITS SERIALLEASE "
 #if CONFIG_ESP_SDR_UART_ENABLED
                   "DUALSERIAL "
 #endif

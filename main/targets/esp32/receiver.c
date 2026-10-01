@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "burst_serial.h"
+#include "spectrum.h"
 #include "rx_tuning.h"
 #include "rx_bandwidth.h"
 #include "esp_wifi.h"
@@ -37,6 +38,7 @@ SOC_RESERVE_MEMORY_REGION(0x3ffe8000, 0x3fff8000, esp32_rf_dump);
 static uint32_t *const samples = (void *)0x3ffe8000;
 static unsigned gain_max, gain_code = 40;
 static bool hardware_agc = true;
+static unsigned frequency_mhz=2412;
 /* Original ESP32 BBTOP RX filter: registers 1/2, seven-bit capacitor DAC.
  * Preserve bit 7 and restore PHY calibration before any retune or transfer. */
 static int rx_filter = -1;
@@ -77,7 +79,7 @@ static void prepare_rx(void) {
 
 /* Clock selectors: 0=16 MS/s, 1=80 MS/s, 2=40 MS/s. Hardware sampling,
  * not software decimation. Rates inferred from capture-duration slopes. */
-static bool capture(unsigned n, unsigned source, unsigned clock, unsigned bits) {
+static bool acquire_iq(unsigned n, unsigned source, unsigned clock, unsigned *capture_us) {
     if (n < 256 || n > MAX_SAMPLES || source > 3 || clock > 2) {
         reply("ERR args\n");
         return false;
@@ -113,6 +115,22 @@ static bool capture(unsigned n, unsigned source, unsigned clock, unsigned bits) 
             return false;
         }
     }
+    *capture_us = elapsed;
+    return true;
+}
+
+static bool spectrum_acquire(unsigned n, unsigned rate, const uint32_t **data, unsigned *elapsed) {
+    unsigned clock = rate == 6 ? 0 : rate == 1 ? 2 : 1;
+    bool ok = acquire_iq(n, 0, clock, elapsed);
+    *data = samples;
+    return ok;
+}
+
+#include "ring_probe.h"
+
+static bool capture(unsigned n, unsigned source, unsigned clock, unsigned bits) {
+    unsigned elapsed;
+    if (!acquire_iq(n, source, clock, &elapsed)) return false;
     size_t bytes = n * 4;
     uint8_t *packed = (uint8_t *)samples;
     if (bits == 8) {
@@ -166,12 +184,17 @@ static bool capture_rate(unsigned n, unsigned rate, unsigned format) {
     return capture(n, 0, rate == 0 ? 1 : rate == 1 ? 2 : 0, format);
 }
 
+
 static void command(const char *line) {
+#ifdef RING_PROBE
+    if(ring_probe_command(line)) return;
+#endif
+    if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
     unsigned n, rate, repeats, format;
     uint64_t nonce;
     char extra;
     if (!strcmp(line, "INFO")) reply("ESP32SDR 6 burst 16380\n");
-    else if (!strcmp(line, "CAPS")) reply("CAPS UARTBAUD RXLIMITS SERIALLEASE TUNEEXT RX40 RX16 LPFANA GAIN HWAGC IQ8\n");
+    else if (!strcmp(line, "CAPS")) reply("CAPS SPEC SPECN SPECCAPS UARTBAUD RXLIMITS SERIALLEASE TUNEEXT RX40 RX16 LPFANA GAIN HWAGC IQ8\n");
     else if (sscanf(line, "BANDWIDTH %u %c", &n, &extra)==1 &&
              (!n || (n>=RX_BANDWIDTH_MIN && n<=RX_BANDWIDTH_MAX))) {
         rx_filter=rx_bandwidth_dcap(n); reply("OK\n");
@@ -193,7 +216,7 @@ static void command(const char *line) {
     else if (sscanf(line, "GAIN MANUAL %u %c", &n, &extra) == 1 && n <= gain_max) {
         hardware_agc = false; gain_code = n; apply_gain(); reply("OK\n");
     } else if (sscanf(line, "FREQ %u %c", &n, &extra) == 1 && rx_frequency_valid(n)) {
-        tune_rx(n);
+        frequency_mhz=n; tune_rx(n);
         prepare_rx(); apply_gain(); reply("OK\n");
     } else if (sscanf(line, "CAP16 %u %u %c", &n, &rate, &extra) == 2) capture_rate(n, rate, 8);
     else if (sscanf(line, "CAP20 %u %u %c", &n, &rate, &extra) == 2) capture_rate(n, rate, 10);

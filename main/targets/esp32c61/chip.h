@@ -6,7 +6,7 @@
 /* sensor-firmware/main/iq/sensor_iq.c documents the per-64-KiB ownership
  * selector and mandatory readback. Use bank 3, leaving bank 4's live ROM
  * data accessible. This also avoids a revision-specific ROM reservation. */
-SOC_RESERVE_MEMORY_REGION(0x40830000, 0x40840000, c61_rf_dump);
+SOC_RESERVE_MEMORY_REGION(0x40820000, 0x40840000, c61_rf_dump);
 #define DUMP_CTRL_REG 0x600a9004u
 #define DUMP_MODE_REG 0x600a9008u
 #define DUMP_WRITER_REG 0x600a900cu

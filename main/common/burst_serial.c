@@ -118,6 +118,15 @@ static int read_port(burst_serial_port_t port, void *buffer, size_t size) {
 #endif
 }
 
+bool burst_serial_stop_requested(void) {
+    char c; bool stopped=false;
+    for(unsigned j=0;j<128 && read_port(active_port,&c,1)==1;j++) {
+        stopped=true;
+        if(c=='\n') break;
+    }
+    return stopped;
+}
+
 int burst_serial_poll_line(char *line, size_t capacity) {
     for (unsigned j = 0; j < BURST_SERIAL_COUNT; ++j) {
         unsigned port = (next_port + j) % BURST_SERIAL_COUNT;

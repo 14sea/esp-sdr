@@ -11,8 +11,9 @@ ESP32-C5 also supports reception in the 5 GHz band.
 With the help of LLMs, we discovered an undocumented debug path that bypasses
 the chip's fixed-function Wi-Fi modem. This gives software access to raw
 radio samples, called **I/Q samples**, from the built-in receiver. ESP-SDR
-currently captures short bursts of these samples and sends them to your
-computer over USB or UART for analysis.
+captures short bursts of these samples and sends them to your
+computer over USB or UART for analysis. It can also compute spectra on-device,
+including continuous RF capture on selected chips.
 
 <br clear="all">
 
@@ -45,6 +46,36 @@ While we have a very good understanding of how the IQ sampling functionality wor
 | ESP32-S2 | ✅ Supported | USB-OTG CDC | GPIO43 / GPIO44 | 4 MB |
 | ESP32-S3 | ✅ Supported | Serial/JTAG | GPIO43 / GPIO44 | 2 MB |
 | ESP32-S31 | ✅ Supported | Serial/JTAG | GPIO58 / GPIO59 | 2 MB |
+
+## On-chip spectrum streaming
+
+The firmware can compute FFTs on the device and send compact spectra instead
+of raw I/Q. The viewer queries each device's supported rates, FFT sizes and
+transport before offering this mode.
+
+| Chip | Continuous RF capture with on-chip FFT | Snapshot FFT |
+| --- | --- | --- |
+| ESP32 | — | 256–2048 bins; 16/40/80 MS/s; UART |
+| ESP32-C3 | 256 bins; 80 MS/s; native USB | 512–2048 bins over USB; 256–2048 over UART |
+| ESP32-C5 | — | 256–2048 bins; 4/8/10/20/40/80 MS/s |
+| ESP32-C6 | 256 bins; 80 MS/s; native USB | 512–2048 bins over USB; 256–2048 over UART |
+| ESP32-C61 | 256 bins; 4/8/10/20/40/80 MS/s; native USB | 512/1024 bins over USB; 256–1024 over UART |
+| ESP32-S2 | — | 256–2048 bins; 16/40/80 MS/s; USB or UART |
+| ESP32-S3 | 256/1024/2048 bins at 16/40 MS/s; 256 at 80 MS/s; native USB | — |
+| ESP32-S31 | — | 256–2048 bins; 4/8/10/20/40/80 MS/s |
+
+Continuous capture keeps the RF writer running, but the CPU analyzes only
+selected FFT windows. It does **not** deliver every sample or guarantee that
+every short RF event will be visible. Snapshot FFT stops reception between
+captures; the viewer labels these gaps explicitly. Raw I/Q capture remains
+available separately.
+
+The original S3 Turbo Mode was developed by Zoltan Doczi from
+[Z2Labs](https://www.z2labs.io/). The shared implementation extends it with
+C6/C61 bank rotation, C3 live-bank reads, and portable snapshot FFTs.
+See [spectrum protocol and hardware validation](docs/spectrum.md) for the
+wire format, limitations and test results. The S3 ring diagnostic host tool
+is [tools/s3_ring.py](tools/s3_ring.py).
 
 ## Commands and transport
 
@@ -161,4 +192,6 @@ the mechanism in your own projects under a license of your choice**.
 
 Third-party components retain their own licenses and copyright notices,
 including the Apache-2.0 ESP-IDF compatibility code in
-`platform/esp32s2/esp_usb_cdc_rom_console/`.
+`platform/esp32s2/esp_usb_cdc_rom_console/`, the pinned
+[ESP-DSP component](components/esp-dsp/LICENSE), and the derived S3 FFT kernel
+in `main/targets/esp32s3/s3_fft_rnd.S`.

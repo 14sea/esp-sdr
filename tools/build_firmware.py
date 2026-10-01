@@ -47,7 +47,7 @@ def main():
     command += ['-C', str(ROOT), '-B', str(build), '-DIDF_TARGET=' + profile['target'],
                 '-DSDKCONFIG=' + str(build / 'sdkconfig'),
                 '-DSDKCONFIG_DEFAULTS=' + str(ROOT / ('sdkconfig.defaults.' + profile['target'])),
-                '-DSAMPLE_RATE_PROBE=OFF', '-DFILTER_REGISTER_PROBE=OFF', '-DS3_RF_PROBE=OFF',
+                '-DRING_PROBE=OFF', '-DSAMPLE_RATE_PROBE=OFF', '-DFILTER_REGISTER_PROBE=OFF', '-DS3_RF_PROBE=OFF',
                 '-DC5_TUNE_PROBE=OFF', '-DS2_RF_PROBE=OFF', 'build']
     subprocess.run(command, env=env, check=True)
     export(build, output, profile['id'], profile['label'], args.version, profile['allow_larger_flash'])

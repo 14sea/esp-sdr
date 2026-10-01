@@ -24,6 +24,10 @@
 #endif
 #include "chip.h"
 #include "burst_serial.h"
+#include "spectrum.h"
+#if CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
+#include "ring_capture.h"
+#endif
 #include "rx_tuning.h"
 extern void phy_stop_tx_tone(unsigned);
 extern void phy_pbus_workmode(void);
@@ -129,7 +133,7 @@ extern unsigned phy_chip_i2c_readReg(unsigned,unsigned,unsigned);
 extern void phy_i2c_writeReg(unsigned,unsigned,unsigned,unsigned);
 static bool probe_capture;
 #endif
-static bool capture(unsigned n,unsigned divider,unsigned format) {
+static bool acquire_iq(unsigned n,unsigned divider,unsigned *capture_us) {
     prepare_rx();
     
     for(unsigned j=0;j<n;j++)IQ_BUFFER[j]=0xa5a0055au;
@@ -177,13 +181,55 @@ static bool capture(unsigned n,unsigned divider,unsigned format) {
     for(unsigned j=0;j<4;j++) {
         if(IQ_BUFFER[n+j]!=(0x5a5aa5a5u^j)){reply("ERR capture_overrun\n");return false;}
     }
+    *capture_us = elapsed;
+    return true;
+}
+
+static bool spectrum_acquire(unsigned n, unsigned rate, const uint32_t **data, unsigned *elapsed) {
+    bool ok = acquire_iq(n, rate, elapsed);
+    *data = IQ_BUFFER;
+    return ok;
+}
+
+#include "ring_probe.h"
+
+static bool capture(unsigned n,unsigned divider,unsigned format) {
+    unsigned elapsed;
+    if (!acquire_iq(n, divider, &elapsed)) return false;
     size_t bytes=wire_size(n,format);
     if(format==16)pack_iq8(n);else if(format==20)pack_iq(n);
     uint32_t crc=esp_rom_crc32_le(0,(const uint8_t *)IQ_BUFFER,bytes);
     char h[96];
-    snprintf(h,sizeof(h),"DATA %u %08" PRIx32 " %" PRIu32 "\n",n,crc,elapsed);
+    snprintf(h,sizeof(h),"DATA %u %08" PRIx32 " %" PRIu32 "\n",n,crc,(uint32_t)elapsed);
     return send_bytes(h,strlen(h)) && send_bytes(IQ_BUFFER,bytes);
 }
+
+#if CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
+static bool ring_test(const char *line) {
+    unsigned ms,rate,stride=1,upf=1,det=0,n=256; char extra;
+    bool spec=sscanf(line,"SPEC %u %u %u %u %u %u %c",&ms,&stride,&upf,&det,&rate,&n,&extra)==6;
+    if(spec && (n!=256 || burst_serial_port()==BURST_SERIAL_UART))return false;
+#ifdef RING_PROBE
+    if(!spec)spec=sscanf(line,"RINGSPEC %u %u %u %u %u %u %c",&ms,&stride,&upf,&det,&rate,&n,&extra)==6;
+    if(!spec && sscanf(line,"RINGTEST %u %u %c",&ms,&rate,&extra)!=2)return false;
+#else
+    if(!spec)return false;
+#endif
+    if(ms>86400000u || rate>5 || !stride || !upf || det>1 || n!=256
+#if CONFIG_IDF_TARGET_ESP32C6
+        || rate!=0
+#endif
+    ){reply("ERR spec_args\n");return true;}
+    if(spec){ring_capture_init();char h[80];snprintf(h,sizeof(h),"SPEC %u %u %u %u\n",n,ring_capture_rate_hz(rate),RING_THRESHOLD,frequency_mhz);reply(h);}
+    prepare_rx();
+    unsigned saved[2];rx_analog_apply(saved);
+    ring_config_t cfg={.mode=spec?RING_MODE_SPEC:RING_MODE_STATS,.rate=rate,.duration_ms=ms,.nfft=n,.stride=stride,.units_per_frame=upf,.max_hold=det==1};
+    ring_result_t r;ring_capture_run(&cfg,&r);rx_analog_restore(saved);
+    char h[200];snprintf(h,sizeof(h),"%s %u %u %u %llu %llu %u %u %u %u %u %u %u\n",spec?"SPECEND":"RINGTEST",(unsigned)r.status,(unsigned)r.detail,
+        (unsigned)r.units,(unsigned long long)r.pairs,(unsigned long long)r.elapsed_us,(unsigned)r.late_max,(unsigned)r.work_max,(unsigned)r.frames,(unsigned)r.drops,(unsigned)r.abandoned,(unsigned)r.ffts,r.stopped_by_host);
+    reply(h);return true;
+}
+#endif
 
 static void handle_command(char *line);
 
@@ -195,10 +241,13 @@ void app_main(void) {
         ESP_ERROR_CHECK(nvs_flash_erase());e=nvs_flash_init();
     }
     ESP_ERROR_CHECK(e);
-    usb_serial_jtag_driver_config_t usb={.tx_buffer_size=8192,.rx_buffer_size=8192};
+    usb_serial_jtag_driver_config_t usb={.tx_buffer_size=512,.rx_buffer_size=512};
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb));
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     wifi_init_config_t cfg=WIFI_INIT_CONFIG_DEFAULT();
+#if CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
+    cfg.static_rx_buf_num=4;
+#endif
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
@@ -227,6 +276,13 @@ void app_main(void) {
 }
 
 static void handle_command(char *line) {
+#ifdef RING_PROBE
+    if(ring_probe_command(line)) return;
+#endif
+#if CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
+    if(ring_test(line))return;
+#endif
+    if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
     if(!strcmp(line,"RELEASE")){reply("OK\n");return;}
     if(!strcmp(line,"TRANSPORT?")) {
         char h[64];snprintf(h,sizeof(h),"TRANSPORT %s %u\n",
@@ -264,7 +320,7 @@ static void handle_command(char *line) {
         else if(sscanf(line,"ADCCLOCK %u %c",&n,&extra)==1 && (n<2 || n==4)) {probe_adc=n;reply("OK\n");}
 #endif
         else if(!strcmp(line,"CAPS")) {
-            reply("CAPS UARTBAUD RXLIMITS GAIN HWAGC IQ8 SERIALLEASE"
+            reply("CAPS SPEC SPECN SPECCAPS UARTBAUD RXLIMITS GAIN HWAGC IQ8 SERIALLEASE"
                   " TUNEEXT"
 #if !CONFIG_IDF_TARGET_ESP32C6
                   " LPF LPF12"

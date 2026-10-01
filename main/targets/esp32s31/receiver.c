@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "burst_serial.h"
+#include "spectrum.h"
 #include "rx_tuning.h"
 #include "rx_bandwidth.h"
 #include "esp_wifi.h"
@@ -166,7 +167,7 @@ static unsigned IRAM_ATTR acquire(unsigned n, unsigned divider, unsigned *end) {
     return done ? elapsed : 0;
 }
 
-static bool capture(unsigned n, unsigned divider, unsigned bits) {
+static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
     REG_CLR_BIT(DUMP_CTRL, BIT(31));
     for (unsigned j=0; j<CAPACITY; j++) dump[j]=SENTINEL;
     for (unsigned j=0; j<4; j++) dump[CAPACITY+j]=SENTINEL;
@@ -189,6 +190,66 @@ static bool capture(unsigned n, unsigned divider, unsigned bits) {
         samples[j]=(w&0xfff00000u)|((w&1023u)<<10)|((w>>10)&1023u);
     }
     unsigned elapsed=cycles/CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ;
+    *capture_us = elapsed;
+    return true;
+}
+
+static bool spectrum_acquire(unsigned n, unsigned rate, const uint32_t **data, unsigned *elapsed) {
+    static const unsigned dividers[]={0,1,3,5,7,9};
+    bool ok = acquire_iq(n, dividers[rate], elapsed);
+    *data = samples;
+    return ok;
+}
+
+#ifdef RING_PROBE
+/* Ownership bits expose interleaved words, not an independently readable
+ * contiguous window. Probe both full ownership and a single released bit. */
+static unsigned IRAM_ATTR ring_probe_run(unsigned divider, unsigned *last, uint32_t live[4], bool release_bank) {
+    esp_ipc_isr_stall_other_cpu();taskENTER_CRITICAL(&dump_mux);
+    REG_WRITE(HP_SYSTEM_TCM_DATA_DUMP_CTRL_REG,0xff000000u);
+    __asm__ volatile("fence" ::: "memory");
+    REG_WRITE(DUMP_MODE,(REG_READ(DUMP_MODE)&~0x01fe0000u)|(divider<<21)|(3u<<17));
+    uint32_t ctrl=(reset_ctrl&~0x803fffffu)|CAPACITY|BIT(17);
+    REG_WRITE(DUMP_CTRL,ctrl|BIT(18));REG_WRITE(DUMP_CTRL,ctrl);
+    REG_WRITE(DUMP_CTRL,ctrl|BIT(31));
+    unsigned start=esp_cpu_get_cycle_count(),prev=0,wraps=0;
+    while(esp_cpu_get_cycle_count()-start<CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ*10000u) {
+        unsigned ptr=REG_READ(DUMP_MODE)&0x1ffffu;
+        if(ptr<prev)wraps++;
+        prev=ptr;
+    }
+    if(release_bank) {
+        unsigned wait_start=esp_cpu_get_cycle_count();
+        for(;;) {
+            unsigned at=REG_READ(DUMP_MODE)&0xffffu;
+            if(at>=8192 && at<16384)break;
+            if(esp_cpu_get_cycle_count()-wait_start>CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ*10000u)break;
+        }
+        REG_WRITE(HP_SYSTEM_TCM_DATA_DUMP_CTRL_REG,0xfe000000u);
+        __asm__ volatile("fence" ::: "memory");
+    }
+    for(unsigned j=0;j<4;j++)live[j]=dump[j];
+    REG_WRITE(HP_SYSTEM_TCM_DATA_DUMP_CTRL_REG,0xff000000u);
+    __asm__ volatile("fence" ::: "memory");
+    REG_CLR_BIT(DUMP_CTRL,BIT(31));REG_WRITE(HP_SYSTEM_TCM_DATA_DUMP_CTRL_REG,0);
+    __asm__ volatile("fence" ::: "memory");
+    taskEXIT_CRITICAL(&dump_mux);esp_ipc_isr_release_other_cpu();
+    *last=prev;return wraps;
+}
+static bool ring_probe_command(const char *line) {
+    unsigned rate,release=0;char extra;
+    int fields=sscanf(line,"RINGPROBE %u %u %c",&rate,&release,&extra);
+    if(fields<1)return false;
+    if(fields>2 || rate>5 || release>1){reply("ERR args\n");return true;}
+    static const unsigned divider[]={0,1,3,5,7,9};
+    prepare_rx();filter_apply();unsigned last=0;uint32_t live[4];unsigned wraps=ring_probe_run(divider[rate],&last,live,release);filter_restore();
+    reply("RINGPROBE %u %u %u %08" PRIx32 " %08" PRIx32 " %08" PRIx32 " %08" PRIx32 " / %08" PRIx32 " %08" PRIx32 " %08" PRIx32 " %08" PRIx32 "\n",rate,wraps,last,live[0],live[1],live[2],live[3],dump[0],dump[1],dump[2],dump[3]);return true;
+}
+#endif
+
+static bool capture(unsigned n, unsigned divider, unsigned bits) {
+    unsigned elapsed;
+    if (!acquire_iq(n, divider, &elapsed)) return false;
     size_t bytes = n * 4;
     uint8_t *packed = (uint8_t *)samples;
     if (bits == 8) {
@@ -242,11 +303,15 @@ static bool capture_rate(unsigned n, unsigned rate, unsigned format) {
 }
 
 static void command(const char *line) {
+#ifdef RING_PROBE
+    if(ring_probe_command(line))return;
+#endif
+    if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
     unsigned n, rate, repeats, format;
     uint64_t nonce;
     char extra;
     if (!strcmp(line, "INFO")) reply("S31SDR 6 burst 16380\n");
-    else if (!strcmp(line, "CAPS")) reply("CAPS UARTBAUD RXLIMITS SERIALLEASE DUALSERIAL TUNEEXT RX40 LPFANA GAIN HWAGC IQ8\n");
+    else if (!strcmp(line, "CAPS")) reply("CAPS SPEC SPECN SPECCAPS UARTBAUD RXLIMITS SERIALLEASE DUALSERIAL TUNEEXT RX40 LPFANA GAIN HWAGC IQ8\n");
     else if (sscanf(line, "BANDWIDTH %u %c", &n, &extra)==1 &&
              (!n || (n>=RX_BANDWIDTH_MIN && n<=RX_BANDWIDTH_MAX))) {
         rx_filter=rx_bandwidth_dcap(n); reply("OK\n");

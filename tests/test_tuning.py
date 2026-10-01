@@ -123,10 +123,14 @@ static unsigned frequency_mhz,gain_max=72,gain_code;
 static bool rx_ready,hardware_agc;
 static int rx_filter;
 static char response[256];
+#define spectrum_acquire NULL
+static bool spectrum_command(const char *s,unsigned f,void *acquire){return false;}
+static bool ring_test(const char *s){return false;}
 static void reply(const char *fmt,...){va_list a;va_start(a,fmt);vsnprintf(response,sizeof(response),fmt,a);va_end(a);}
 static int burst_serial_port(void){return 1;}
 static unsigned burst_serial_baud(void){return 2000000;}
 static bool gain_command(const char *s){return false;}
+static bool ring_command(const char *s){return false;}
 static bool limits_command(const char *s){return false;}
 static bool capture(unsigned n,unsigned d,unsigned f){return true;}
 static bool capture_rate(unsigned n,unsigned d,unsigned f){return true;}
@@ -146,6 +150,9 @@ static unsigned phy_i2c_readReg(unsigned a,unsigned b,unsigned c){return 0;}
 static void send(const char *s){char line[128];snprintf(line,sizeof(line),"%s",s);HANDLER(line);}
 int main(void){
  send("CAPS");assert(strstr(response,"TUNEEXT"));
+#if CONFIG_IDF_TARGET_ESP32S31
+ assert(strstr(response," SPEC ") && strstr(response," SPECN ") && strstr(response," SPECCAPS "));
+#endif
  send("RANGE?");assert(!strcmp(response,"RANGE 100 6000 1\n"));
  for(unsigned f=100;f<=6000;f++){
   char cmd[40];snprintf(cmd,sizeof(cmd),"FREQ %u",f);send(cmd);

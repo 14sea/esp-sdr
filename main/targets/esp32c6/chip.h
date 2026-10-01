@@ -5,7 +5,7 @@
 /* C6 stock librftest adctrig uses SRAM bank 2 and source 15. */
 #define BURST_ID "C6SDR"
 #define IQ_BUFFER ((uint32_t *)0x40840000)
-SOC_RESERVE_MEMORY_REGION(0x40840000,0x40860000,c6_rf_dump);
+SOC_RESERVE_MEMORY_REGION(0x40820000,0x40860000,c6_rf_dump);
 extern void chip_v7_set_chan(unsigned,unsigned);
 extern void phy_set_freq(unsigned,int);
 static void c6_set_chan(unsigned mhz,unsigned mode) {

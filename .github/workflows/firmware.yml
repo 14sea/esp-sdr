@@ -19,6 +19,8 @@ jobs:
       matrix: ${{ steps.catalog.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Test artifact export
         run: python3 -m unittest discover -s tests
       - id: catalog
@@ -33,6 +35,8 @@ jobs:
       matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Check out pinned ESP-IDF
         uses: actions/checkout@v4
         with:
@@ -83,6 +87,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/download-artifact@v4
         with:
           pattern: firmware-*

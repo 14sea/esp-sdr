@@ -16,6 +16,8 @@
 #include "soc/soc.h"
 
 #include "burst_serial.h"
+#include "spectrum.h"
+#include "ring_capture.h"
 #include "rx_tuning.h"
 
 /* Pinned C3 librftest adctrig: 64 KiB at 0x3fcb0000, usage=2,
@@ -103,7 +105,7 @@ static size_t wire_size(unsigned n,unsigned format) {
     return format==16?n*2:format==20?packed_size(n):n*4;
 }
 static portMUX_TYPE capture_mux=portMUX_INITIALIZER_UNLOCKED;
-static bool capture(unsigned n,unsigned divider,unsigned format) {
+static bool acquire_iq(unsigned n,unsigned divider,unsigned *capture_us) {
     if(divider!=0){reply("ERR rate\n");return false;}
     prepare_rx();
 
@@ -134,15 +136,60 @@ static bool capture(unsigned n,unsigned divider,unsigned format) {
     for(unsigned j=0;j<n;j++) {
         if(IQ_BUFFER[j]==0xa5a0055au){reply("ERR capture_incomplete\n");return false;}
     }
+    *capture_us = elapsed;
+    return true;
+}
+
+static bool spectrum_acquire(unsigned n, unsigned rate, const uint32_t **data, unsigned *elapsed) {
+    bool ok = acquire_iq(n, rate, elapsed);
+    *data = IQ_BUFFER;
+    return ok;
+}
+
+#include "ring_probe.h"
+
+static bool capture(unsigned n,unsigned divider,unsigned format) {
+    unsigned elapsed;
+    if (!acquire_iq(n, divider, &elapsed)) return false;
     size_t bytes=wire_size(n,format);
     if(format==16)pack_iq8(n);else if(format==20)pack_iq(n);
     uint32_t crc=esp_rom_crc32_le(0,(const uint8_t *)IQ_BUFFER,bytes);
     char h[96];
-    snprintf(h,sizeof(h),"DATA %u %08" PRIx32 " %" PRIu32 "\n",n,crc,elapsed);
+    snprintf(h,sizeof(h),"DATA %u %08" PRIx32 " %" PRIu32 "\n",n,crc,(uint32_t)elapsed);
     return send_bytes(h,strlen(h)) && send_bytes(IQ_BUFFER,bytes);
 }
 
+static bool ring_test(const char *line) {
+    unsigned ms,rate,stride=1,upf=1,det=0,n=256; char extra;
+    bool spec=sscanf(line,"SPEC %u %u %u %u %u %u %c",&ms,&stride,&upf,&det,&rate,&n,&extra)==6;
+    if(spec && (n!=256 || burst_serial_port()==BURST_SERIAL_UART))return false;
+#ifdef RING_PROBE
+    if(!spec)spec=sscanf(line,"RINGSPEC %u %u %u %u %u %u %c",&ms,&stride,&upf,&det,&rate,&n,&extra)==6;
+    if(!spec && sscanf(line,"RINGTEST %u %u %c",&ms,&rate,&extra)!=2)return false;
+#else
+    if(!spec)return false;
+#endif
+    if(ms>86400000u || rate>5 || !stride || !upf || det>1 || n!=256
+#if CONFIG_IDF_TARGET_ESP32C3
+        || rate!=0
+#endif
+    ){reply("ERR spec_args\n");return true;}
+    if(spec){ring_capture_init();char h[80];snprintf(h,sizeof(h),"SPEC %u %u %u %u\n",n,ring_capture_rate_hz(rate),RING_THRESHOLD,frequency_mhz);reply(h);}
+    prepare_rx();
+    rx_filter_apply();
+    ring_config_t cfg={.mode=spec?RING_MODE_SPEC:RING_MODE_STATS,.rate=rate,.duration_ms=ms,.nfft=n,.stride=stride,.units_per_frame=upf,.max_hold=det==1};
+    ring_result_t r;ring_capture_run(&cfg,&r);rx_filter_restore();
+    char h[200];snprintf(h,sizeof(h),"%s %u %u %u %llu %llu %u %u %u %u %u %u %u\n",spec?"SPECEND":"RINGTEST",(unsigned)r.status,(unsigned)r.detail,
+        (unsigned)r.units,(unsigned long long)r.pairs,(unsigned long long)r.elapsed_us,(unsigned)r.late_max,(unsigned)r.work_max,(unsigned)r.frames,(unsigned)r.drops,(unsigned)r.abandoned,(unsigned)r.ffts,r.stopped_by_host);
+    reply(h);return true;
+}
+
 static void handle_command(char *line) {
+    if(ring_test(line))return;
+#ifdef RING_PROBE
+    if(ring_probe_command(line)) return;
+#endif
+    if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
     if(!strcmp(line,"TRANSPORT?")) {
         char answer[64];
         snprintf(answer,sizeof(answer),"TRANSPORT %s %u\n",
@@ -166,7 +213,7 @@ static void handle_command(char *line) {
         if(ok)reply("END\n");
     }
     else if(!strcmp(line,"CAPS")) {
-        reply("CAPS UARTBAUD RXLIMITS SERIALLEASE "
+        reply("CAPS SPEC SPECN SPECCAPS UARTBAUD RXLIMITS SERIALLEASE "
 #if CONFIG_ESP_SDR_UART_ENABLED
               "DUALSERIAL "
 #endif

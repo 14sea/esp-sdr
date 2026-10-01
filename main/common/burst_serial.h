@@ -14,3 +14,6 @@ int burst_serial_poll_line(char *line, size_t capacity);
 burst_serial_port_t burst_serial_port(void);
 unsigned burst_serial_baud(void);
 bool burst_serial_send(const void *data, size_t size);
+
+/* Consume a stream stop request on the owning port only. */
+bool burst_serial_stop_requested(void);
