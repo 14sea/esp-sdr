@@ -188,8 +188,9 @@ static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
     for (unsigned j=0; j<n; j++) {
         unsigned w=dump[SETTLE_SAMPLES+j];
         if(w==SENTINEL) { reply("ERR capture_memory %u\n",j); return false; }
-        /* S31 hardware is Q-low/I-high; normalize to the shared wire layout. */
-        samples[j]=(w&0xfff00000u)|((w&1023u)<<10)|((w>>10)&1023u);
+        /* I-low/Q-high, like the shared wire layout. Swapping these lanes
+         * mirrors RF frequencies in both raw I/Q and snapshot spectra. */
+        samples[j]=w;
     }
     unsigned elapsed=cycles/CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ;
     *capture_us = elapsed;

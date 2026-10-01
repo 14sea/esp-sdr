@@ -147,7 +147,7 @@ static void s31_worker(void *arg){
                             unsigned end=j+8<to?j+8:to;
                             for(;j<end;j++){
                                 uint32_t w=s31_bank(job.bank)[(at+j)&S31_MASK];
-                                int32_t q=(int32_t)(w<<22)>>22,i=(int32_t)(w<<12)>>22;
+                                int32_t i=(int32_t)(w<<22)>>22,q=(int32_t)(w<<12)>>22;
                                 s31_work.fft[2*j]=(i*s31_work.window[j])>>9;s31_work.fft[2*j+1]=(q*s31_work.window[j])>>9;
                             }
                         }
