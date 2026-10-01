@@ -169,6 +169,25 @@ or reception; the viewer uses the ISM-band warning described above.
 
 See [receive-control details](docs/rx-controls.md).
 
+## Contributors
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/Jeija">
+        <img src="https://github.com/Jeija.png?size=160" width="80" height="80" alt="Florian Euchner"><br>
+        <b>Florian Euchner</b>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/zodoczi">
+        <img src="https://github.com/zodoczi.png?size=160" width="80" height="80" alt="Zoltan Doczi"><br>
+        <b>Zoltan Doczi</b>
+      </a>
+    </td>
+  </tr>
+</table>
+
 ## License
 
 ESP-SDR is licensed under the GNU General Public License as published by the
