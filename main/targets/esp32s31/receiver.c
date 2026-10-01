@@ -1,5 +1,5 @@
 /* ESP32-S31 RX-only backend for the ESP-SDR burst protocol.
- * Standard ADC dump path, with a bounded, peer-stalled TCM handoff.
+ * Bounded snapshots and continuous dual-core SIMD spectra over native USB.
  */
 #include <stdio.h>
 #include <assert.h>
@@ -23,13 +23,15 @@
 #include "soc/hp_system_reg.h"
 #include "esp_ipc_isr.h"
 #include "esp_cpu.h"
+#include "esp_system.h"
 #include "esp_phy_cert_test.h"
 #include "driver/usb_serial_jtag.h"
 #include "heap_memory_layout.h"
 
-/* The S31 dump aperture is fixed. Reserve its lower guard and ROM-owned top
- * as well; neither heap nor linker sections may use this memory. */
-SOC_RESERVE_MEMORY_REGION(0x2f050000, 0x2f07f170, s31_rf_dump);
+/* RF ownership covers complete 128 KiB groups. Continuous spectra alternate
+ * both groups; snapshots use the upper group. Exclude them from the heap and
+ * enforce the same boundary for static sections in sram_guard.ld. */
+SOC_RESERVE_MEMORY_REGION(0x2f040000, 0x2f07f170, s31_rf_dump);
 #define DUMP_CTRL 0x20109004u
 #define DUMP_MODE 0x20109008u
 #define DUMP_MAC 0x2010900cu
@@ -201,6 +203,8 @@ static bool spectrum_acquire(unsigned n, unsigned rate, const uint32_t **data, u
     return ok;
 }
 
+#include "s31_spectrum.h"
+
 #ifdef RING_PROBE
 /* Ownership bits expose interleaved words, not an independently readable
  * contiguous window. Probe both full ownership and a single released bit. */
@@ -306,6 +310,7 @@ static void command(const char *line) {
 #ifdef RING_PROBE
     if(ring_probe_command(line))return;
 #endif
+    if (s31_spectrum_command(line)) return;
     if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
     unsigned n, rate, repeats, format;
     uint64_t nonce;

@@ -11,7 +11,9 @@ Each profile contains `[sample_rate_hz, rate_code, fft_bins, stride,
 units_per_frame, continuous]`. The last field is optional for compatibility;
 five-field profiles inherit the top-level `continuous` value. Capabilities
 are specific to the connection: C3/C6/C61 use snapshot FFT on UART and
-continuous 256-bin capture on native USB. S3 spectra require native USB.
+continuous 256-bin capture on native USB. S31 supports continuous capture at
+all advertised FFT sizes and rates on native USB, with snapshots over UART.
+S3 spectra require native USB.
 Unsupported controls stay hidden. Existing S3 firmware without `SPECCAPS`
 uses the original S3 compatibility profiles.
 
@@ -108,10 +110,16 @@ C3 reads its live capture bank, masks interrupts only while copying one FFT
 window, and yields during FFT processing. Its watchdog settings remain enabled.
 All scalar FFT input copies are independent of subsequent RF writes.
 
-ESP32, S2, C5 and S31 use snapshot FFTs because a safe continuous processing
-path has not been established. The S3 worker depends on its Xtensa/PIE and
-three-bank layout; ESP32 and S31 having two cores alone does not make that
-worker portable. Shared DC correction and statistics work on all eight targets.
+S31 rotates two complete 128 KiB SRAM ownership groups without stopping the RF
+writer. Core 0 validates exact bank boundaries and handles USB; core 1 runs
+RISC-V SIMD unpacking, Hann windowing and rounded FFTs. The worker relinquishes
+each bank before RF reuse, and skips work that cannot meet that deadline.
+Its code, buffers and stack reside in internal SRAM. Interrupt/task watchdogs
+are disabled for the continuous capture scheduler, with bounded capture and
+host-stall timeouts. Snapshot and continuous modes share their FFT workspace.
+
+ESP32, S2 and C5 use snapshot FFTs because a safe continuous processing
+path has not been established. Shared DC correction and statistics work on all eight targets.
 Large transforms can skip substantial processing
 work; the stream counters report it.
 
@@ -124,6 +132,14 @@ from reader stalls, and switching modes in the browser. S3 single-core, worker-o
 Alternate UART wiring
 on the native-USB boards was not tested. Continuous capture was checked using
 hardware indices and bank boundaries, not calibrated RF phase coherence.
+
+S31 SIMD unpacking matched scalar conversion across 32,768 samples and all
+word alignments. Its rounded FFT matched the scalar reference within three
+output counts for zero, tone and Hann-windowed random inputs at all four sizes.
+These checks caught and corrected a vendor-derived final-stage loop that
+skipped eight samples. All 48 S31 rate/size/detector combinations passed CRC
+and sustained-output checks, followed by overload, long-averaging, stop,
+reader-stall/reconnect and browser mode-switching checks.
 
 To repeat the profile check on an attached board, install `pyserial` and run:
 

@@ -28,6 +28,11 @@ static float powers[MAX_FFT];
 static uint8_t frame[HEADER_BYTES + MAX_FFT + 4];
 static unsigned setup_n;
 static bool ready;
+spectrum_workspace_t spectrum_workspace(void) {
+    setup_n=0;
+    return (spectrum_workspace_t){fft_data,window,powers,frame};
+}
+
 static int16_t twiddles[MAX_FFT] __attribute__((aligned(16)));
 bool spectrum_fft_init(void) {
     if(!ready) ready=dsps_fft2r_init_sc16(twiddles,MAX_FFT)==ESP_OK;

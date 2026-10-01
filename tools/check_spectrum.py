@@ -88,6 +88,8 @@ def check(port, milliseconds, stats=False):
             if not run['frames']:
                 raise RuntimeError(f'No spectra for {profile}')
             if stats and milliseconds>=500 and not run['stats']:raise RuntimeError(f'No statistics for {profile}')
+            if stats and milliseconds>=500 and not any(s['ffts_per_s'] for s in run['stats']):
+                raise RuntimeError(f'No sustained FFT processing for {profile}')
             result['runs'].append(run)
     result['after']=command(port,'INFO')
     if result['after']!=result['identity']:

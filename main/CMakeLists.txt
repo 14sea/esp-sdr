@@ -40,6 +40,11 @@ elseif(IDF_TARGET STREQUAL "esp32c5" OR IDF_TARGET STREQUAL "esp32c6" OR IDF_TAR
     list(APPEND probes SAMPLE_RATE_PROBE FILTER_REGISTER_PROBE C5_TUNE_PROBE)
 endif()
 
+if(IDF_TARGET STREQUAL "esp32s31")
+    list(APPEND sources "${target_dir}/s31_fft_rnd.S" "${target_dir}/s31_unpack.S")
+    list(APPEND fragments "${target_dir}/linker.lf")
+endif()
+
 if(IDF_TARGET STREQUAL "esp32c61" OR IDF_TARGET STREQUAL "esp32s31")
     list(APPEND sources "common/burst_gain_table.c")
 endif()
