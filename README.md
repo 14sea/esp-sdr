@@ -137,3 +137,28 @@ Gain and power are uncalibrated. Extended tuning does not guarantee PLL lock
 or reception; the viewer uses the ISM-band warning described above.
 
 See [receive-control details](docs/rx-controls.md).
+
+## License
+
+ESP-SDR is licensed under the GNU General Public License as published by the
+Free Software Foundation, either version 3 of the License, or (at your option)
+any later version (`GPL-3.0-or-later`). See [LICENSE](LICENSE) for the full terms.
+It is provided without any warranty, including implied warranties of
+merchantability or fitness for a particular purpose.
+
+**We chose the GPL because we want improvements to ESP-SDR to make their way
+back to the community**. When you distribute modified versions, the GPL requires
+you to make the corresponding source available to recipients under the GPL,
+so they can study, share, and build on those improvements. We encourage you to
+contribute changes upstream, but the GPL does not require upstream submissions
+or publication of private modifications. See the
+[GNU GPL FAQ](https://www.gnu.org/licenses/gpl-faq.html#UnreleasedMods).
+
+The discovery of the capture mechanism itself is not protected by copyright:
+copyright covers the code and other copyrightable expression, not the
+underlying facts, ideas, or methods. **You are free to independently implement
+the mechanism in your own projects under a license of your choice**.
+
+Third-party components retain their own licenses and copyright notices,
+including the Apache-2.0 ESP-IDF compatibility code in
+`platform/esp32s2/esp_usb_cdc_rom_console/`.
