@@ -16,7 +16,8 @@ Unsupported controls stay hidden. Existing S3 firmware without `SPECCAPS`
 uses the original S3 compatibility profiles.
 
 Send `SPEC <milliseconds> <stride> <units_per_frame> <detector> <rate_code>
-<fft_bins>`. Zero milliseconds runs until a stop byte; detector 0 means mean
+<fft_bins> [stats]`. When `CAPS` includes `SPECSTAT`, append `1` to receive
+statistics alongside spectra (omitting it preserves the original protocol). Zero milliseconds runs until a stop byte; detector 0 means mean
 power and 1 means maximum power. Use the parameters from the chosen profile.
 Portable snapshots require stride 1. C3/C6/C61 continuous frames contain one
 FFT, so their two detector settings give the same individual-frame result;
@@ -61,10 +62,46 @@ or an end record; if it cannot establish the end boundary, it marks the
 connection failed and requires reconnecting. It must not issue ordinary
 commands into that uncertain stream. Reconnection reacquires the serial lease.
 
+`SPS1` statistics are optional 40-byte records, emitted approximately every
+250 ms. They have a 36-byte little-endian body followed by its CRC32:
+
+| Offset | Type | Meaning |
+| --- | --- | --- |
+| 0 | u32 | ASCII `SPS1` |
+| 4, 6 | u16 | Core 0 / core 1 processing load, per mille |
+| 8 | u16 | Fraction of samples analyzed by FFT, per mille |
+| 10 | u16 | Bit 0: dual core; bit 1: core 0 assists FFTs |
+| 12, 16 | u32 | Free internal heap / largest block before capture, bytes |
+| 20, 24 | u32 | Cumulative abandoned work / dropped frames |
+| 28, 30 | u16 | Maximum bank lateness in samples / output queue fill per mille |
+| 32 | u32 | FFTs per second |
+
+Load measures time spent processing captures, not general FreeRTOS CPU usage.
+Snapshot coverage includes gaps between captures. The heap figures are taken
+before interrupts are masked; they are not live allocator measurements.
+
+All targets advertise `DCT`: `DC?` queries the on-chip DC correction;
+`DC 1` selects the default slow tracker (1/64 update per FFT), and `DC 0`
+removes each FFT's instantaneous DC estimate. Both correct the Hann window's
+adjacent bins. The tracker resets at each capture and can also suppress a
+stationary signal exactly at the LO. The viewer's offset-LO setting moves the
+frequency of interest away from this correction; “fill DC bins” only changes
+the display. Raw I/Q captures retain their original behavior.
+
 ## Implementation constraints
 
-S3 uses three SRAM banks and its SIMD FFT. C6 and C61 use two banks with scalar
-FFT work split into short slices. These bank-rotation runs mask interrupts;
+S3 uses three SRAM banks and a bare second-core worker for SIMD unpacking,
+FFT, power accumulation and encoding. Core 0 owns bank rotation and USB and
+assists with FFTs when its deadline permits. Bank revocation waits for active
+readers before giving SRAM back to the RF writer. DC state has one owner.
+`DUAL 0` selects the single-core fallback, `DUAL 1` enables the worker with
+assistance (default), and `DUAL 2` disables assistance. `DUAL?` returns the
+active mode and whether the worker booted; re-query `SPECINFO?` after changing
+modes. The fallback splits FFTs into radix-2 stages, with bounded unpacking,
+accumulation and checksum slices. Both paths support 256/512/1024/2048 bins
+at 16/40/80 MS/s. The capture scheduler and SIMD kernel
+run from internal RAM to avoid flash-cache delays. C6 and C61 use two banks
+with scalar FFT work split into short slices. These bank-rotation runs mask interrupts;
 their firmware profiles disable interrupt/task watchdogs, as required by this
 architecture. A stalled host ends the acquisition through the stream timeout.
 C3 reads its live capture bank, masks interrupts only while copying one FFT
@@ -72,23 +109,26 @@ window, and yields during FFT processing. Its watchdog settings remain enabled.
 All scalar FFT input copies are independent of subsequent RF writes.
 
 ESP32, S2, C5 and S31 use snapshot FFTs because a safe continuous processing
-path has not been established. Large S3 transforms at 40 MS/s can skip substantial
-processing work; the stream counters report it. At 80 MS/s, the S3's bank-switch
-deadline limits the current implementation to 256-bin FFTs.
+path has not been established. The S3 worker depends on its Xtensa/PIE and
+three-bank layout; ESP32 and S31 having two cores alone does not make that
+worker portable. Shared DC correction and statistics work on all eight targets.
+Large transforms can skip substantial processing
+work; the stream counters report it.
 
 ## Validation
 
 All advertised rate/FFT/detector combinations were checked on ESP32, C3, C5,
 C6, C61, S2, S3 and S31, using UART on ESP32 and native USB on the others.
 Checks covered frame CRCs, command access after capture, host stops, recovery
-from reader stalls, and switching modes in the browser. Alternate UART wiring
+from reader stalls, and switching modes in the browser. S3 single-core, worker-only and assisted profiles are checked separately.
+Alternate UART wiring
 on the native-USB boards was not tested. Continuous capture was checked using
 hardware indices and bank boundaries, not calibrated RF phase coherence.
 
 To repeat the profile check on an attached board, install `pyserial` and run:
 
 ```sh
-python tools/check_spectrum.py --port /dev/ttyACM2 --milliseconds 3000
+python tools/check_spectrum.py --port /dev/ttyACM2 --milliseconds 3000 --stats
 ```
 
 The tool does not flash firmware and emits a JSON report.

@@ -7,7 +7,7 @@ option(SAMPLE_RATE_PROBE "Build volatile hardware sample-rate diagnostics (never
 
 set(target_dir "targets/${IDF_TARGET}")
 set(receiver "${target_dir}/receiver.c")
-set(sources "common/burst_serial.c")
+set(sources "common/burst_serial.c" "common/spectrum_stats.c")
 set(dependencies esp_phy esp_wifi nvs_flash esp_timer esp_driver_uart esp-dsp)
 option(RING_PROBE "Build bounded experimental ring diagnostics (never package)" OFF)
 if(IDF_TARGET STREQUAL "esp32c61" OR IDF_TARGET STREQUAL "esp32c6" OR IDF_TARGET STREQUAL "esp32c3")
@@ -27,7 +27,7 @@ elseif(NOT IDF_TARGET STREQUAL "esp32")
 endif()
 
 if(IDF_TARGET STREQUAL "esp32s3")
-    list(APPEND sources "common/ring_capture.c" "${target_dir}/s3_fft_rnd.S")
+    list(APPEND sources "common/ring_capture.c" "${target_dir}/s3_fft_rnd.S" "${target_dir}/s3_unpack.S" "${target_dir}/s3_core1.S")
     # SPEC-mode FFT; pinned submodule, the component manager stays disabled.
     list(APPEND dependencies esp-dsp)
     list(APPEND fragments "${target_dir}/linker.lf")
