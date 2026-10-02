@@ -196,9 +196,9 @@ All supported burst targets accept tuning attempts from **100–6000 MHz in 1 MH
 The viewer shows an informational warning outside 2400–2483.5 MHz, with
 5150–5895 MHz also treated as the supported 5 GHz Wi-Fi band on C5. The warning never blocks tuning.
 These are software attempt limits, not a guaranteed reception range.
-ESP32, S2, S3 and C3 automatically use the experimental **5/6 LO mode from
+ESP32, S2, S3, C2, C3 and C6 automatically use the experimental **5/6 LO mode from
 1842–2209 MHz**, extending reception down to about **1.84 GHz** on the tested
-boards. No extra command or browser setting is needed. C5, C6, C61 and S31
+boards. No extra command or browser setting is needed. C5, C61, H2 and S31
 retain their existing tuning; an equivalent divider mode is not yet verified.
 
 - **ESP32:** 80/40/16 MS/s.

@@ -60,7 +60,7 @@ C6 currently exposes only nominal 80 MS/s. Other tested clock/divider settings
 and dump sources did not establish a reliable lower-rate I/Q path. Unsupported
 rates are rejected.
 
-All eight chips advertise `TUNEEXT` and answer `RANGE?` with
+All supported burst targets advertise `TUNEEXT` and answer `RANGE?` with
 `RANGE 100 6000 1`: every integer MHz from 100 through 6000 is accepted for an
 attempt. Fractional MHz and values outside that software range are rejected.
 `main/common/rx_tuning.h` defines the shared limits. PLL lock is not a condition
@@ -75,7 +75,8 @@ S31 likewise keeps arbitrary frequencies out of channel calibration.
 
 ### Experimental lower-band LO conversion
 
-ESP32, S2, S3 and C3 select CKGEN `0x65:0[4]` for **5/6** conversion at
+ESP32, S2, S3 and C3 select CKGEN `0x65:0[4]`; C2 and C6 select
+`0x62:16[3]` (host **1**). Both selectors provide **5/6** conversion at
 1842–2209 MHz. `FREQ` still specifies the receive frequency: for example,
 `FREQ 2001` programs a 2401.2 MHz PLL coordinate. Calibration runs with the
 normal divider; the alternate divider is applied after RX setup. Other
@@ -91,19 +92,19 @@ means a tuning attempt, not a guaranteed PLL lock.
 
 This follows the [eSpDR S3 investigation](https://github.com/h0m3us3r/eSpDR/commit/f279bf823eee41796dfd1ac21f13e1ed9b418c82).
 The older eagletest `set_freq_test()` calculation implies 8/9; external-tone
-measurements on the tested ESP32, S2, S3 and C3 instead confirm **5/6**.
+measurements on the tested ESP32, S2, S3, C2, C3 and C6 instead confirm **5/6**.
 Tests use a HackRF source through antennas, source-on/off comparisons,
 known tone offsets, fractional PLL settings, and returns to normal tuning.
 They establish reception at discrete frequencies, not calibrated sensitivity
 or guaranteed performance throughout the interval. Sample-clock configuration
 is unchanged; burst timing and tone positions were checked at nominal 80 MS/s.
 
-C5, C6, C61 and S31 were also checked. Their analog register layouts differ:
+C5, C61, H2 and S31 were also checked. Their analog register layouts differ:
 C5 places CKGEN in block `0x68`, while C61/S31's SDK resets CKGEN through
 block `0x62`. The legacy `0x65:0[4]` selector is not exposed as on the older
 chips, and no equivalent mode has been qualified. They keep their existing
 frequency programming; do not apply the old bit or frequency multiplier to
-them. The shared `rx_lo.h` deliberately accepts only the four verified chips.
+them. The shared `rx_lo.h` deliberately accepts only the six verified chips.
 
 The browser negotiates ranges for every chip and uses them for text entry and
 spectrum click-to-tune. Older firmware retains its advertised limits, with

@@ -28,9 +28,12 @@ static unsigned frequency_mhz, captures, last_samples, last_format;
 static bool rx_ready;
 static int rx_filter=-1;
 static unsigned rom_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){return 29;}
+static void rom_chip_i2c_writeReg(unsigned b,unsigned h,unsigned r,unsigned v){}
+#include "rx_lo.h"
 static unsigned calibrated_mhz,pll_mhz,pll_writes;
+static int pll_offset;
 static void set_chanfreq(unsigned mhz,unsigned mode) { calibrated_mhz=mhz; }
-static void phy_set_freq(unsigned mhz,int offset) { pll_mhz=mhz;pll_writes++; }
+static void phy_set_freq(unsigned mhz,int offset) { pll_mhz=mhz;pll_offset=offset;pll_writes++; }
 static char response[256];
 static int burst_serial_port(void) { return 1; }
 static unsigned burst_serial_baud(void) { return 2000000; }
@@ -87,7 +90,8 @@ int main(void) {
    bool channel=(f>=2412 && f<=2472 && (f-2412)%5==0)||f==2484;
    unsigned before=pll_writes;tune_rx(f);
    assert(calibrated_mhz==(channel?f:2412));
-   assert(pll_writes==before+!channel);if(!channel)assert(pll_mhz==f);
+   assert(pll_writes==before+!channel);
+   if(!channel)assert(pll_mhz*1000u+pll_offset==f*(f>=1842 && f<2210?1200u:1000u));
  }
  command("FREQ 2484");assert(frequency_mhz==2484 && !strcmp(response,"OK\n"));
  return 0;
