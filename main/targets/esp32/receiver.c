@@ -10,6 +10,7 @@
 #include "burst_serial.h"
 #include "spectrum.h"
 #include "rx_tuning.h"
+#include "rx_lo.h"
 #include "rx_bandwidth.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -75,6 +76,7 @@ static void prepare_rx(void) {
     rom_pbus_xpd_tx_off();
     rom_pbus_xpd_rx_on(1);
     rom_set_rxclk_en(1);
+    if(rx_lo_select(rx_lo_plan(frequency_mhz).alternate))esp_rom_delay_us(3000);
 }
 
 /* Clock selectors: 0=16 MS/s, 1=80 MS/s, 2=40 MS/s. Hardware sampling,
@@ -165,6 +167,8 @@ extern void set_chanfreq(unsigned mhz, unsigned mode);
 extern void rom_set_rf_freq_offset(unsigned crystal, unsigned mhz, int offset);
 
 static void tune_rx(unsigned mhz) {
+    rx_lo_plan_t plan=rx_lo_plan(mhz);
+    rx_lo_select(false);
     bool channel = (mhz >= 2412 && mhz <= 2472 && (mhz-2412)%5 == 0) || mhz == 2484;
     /* Calibrate on a real channel before bypassing the channel-number mapping.
      * Use the PHY entry point even for repeated requests: the Wi-Fi API can
@@ -172,8 +176,13 @@ static void tune_rx(unsigned mhz) {
     set_chanfreq(channel ? mhz : 2412, 0);
     if (!channel) {
         unsigned xtal = rtc_clk_xtal_freq_get();
-        /* ROM crystal selector: 0=40 MHz, 1=26 MHz, 2=24 MHz. */
-        rom_set_rf_freq_offset(xtal == 26 ? 1 : xtal == 24 ? 2 : 0, mhz, 0);
+        /* Channel setup pins its capacitor code. Release it before the ROM
+         * retune, otherwise the SDM changes but the PLL can remain unlocked. */
+        unsigned cap=ram_chip_i2c_readReg(0x62,1,0);
+        ram_chip_i2c_writeReg(0x62,1,0,cap&~0x80u);
+        /* This ROM uses 1/1024 MHz offsets, unlike the newer kHz API. */
+        int offset=(plan.offset_khz*1024+500)/1000;
+        rom_set_rf_freq_offset(xtal == 26 ? 1 : xtal == 24 ? 2 : 0, plan.mhz, offset);
     }
 }
 

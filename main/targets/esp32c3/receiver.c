@@ -19,6 +19,8 @@
 #include "spectrum.h"
 #include "ring_capture.h"
 #include "rx_tuning.h"
+#include "rx_lo.h"
+#include "esp_rom_sys.h"
 
 /* Pinned C3 librftest adctrig: 64 KiB at 0x3fcb0000, usage=2,
  * allocation bit 3. Reserve the FULL 128 KiB bank and its IRAM alias:
@@ -56,12 +58,11 @@ static bool frequency_valid(unsigned mhz) {
     return mhz>=C3_FREQ_MIN && mhz<=C3_FREQ_MAX;
 }
 static void tune_rx(unsigned mhz) {
-    bool channel=(mhz>=2412 && mhz<=2472 && (mhz-2412)%5==0) || mhz==2484;
-    /* Calibrate using a real Wi-Fi channel, then program exact PLL MHz.
-     * The channel API otherwise rounds off-grid frequencies. This is an
-     * attempt range; PLL lock and reception are not guaranteed throughout. */
+    rx_lo_plan_t plan=rx_lo_plan(mhz);
+    bool channel=(mhz>=2412 && mhz<=2472 && (mhz-2412)%5==0)||mhz==2484;
+    rx_lo_select(false);
     set_chanfreq(channel?mhz:2412,0);
-    if(!channel)phy_set_freq(mhz,0);
+    if(!channel)phy_set_freq(plan.mhz,plan.offset_khz);
 }
 #define send_bytes burst_serial_send
 static void reply(const char *s) { (void)send_bytes(s,strlen(s)); }
@@ -77,6 +78,8 @@ static void prepare_rx(void) {
     rom_pbus_xpd_rx_on(1);
     rom_set_rxclk_en(1);
     gain_apply();
+    rx_lo_select(rx_lo_plan(frequency_mhz).alternate);
+    esp_rom_delay_us(3000);
     rx_ready=true;
 }
 
