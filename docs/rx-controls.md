@@ -73,6 +73,38 @@ above 3000 MHz, matching the pinned PHY's band selection. Its direct path uses
 C5's `phy_set_freq` re-enters channel conversion and is deliberately bypassed.
 S31 likewise keeps arbitrary frequencies out of channel calibration.
 
+### Experimental lower-band LO conversion
+
+ESP32, S2, S3 and C3 select CKGEN `0x65:0[4]` for **5/6** conversion at
+1842–2209 MHz. `FREQ` still specifies the receive frequency: for example,
+`FREQ 2001` programs a 2401.2 MHz PLL coordinate. Calibration runs with the
+normal divider; the alternate divider is applied after RX setup. Other
+frequencies restore normal conversion. Only the selector bit is changed.
+
+The original ESP32 needs the SDK's patched `ram_chip_i2c_*` functions and
+CKGEN host **4**; S2/S3/C3 use host **1**. ESP32 also needs its channel's fixed
+capacitor released before a direct retune, and its offset argument is in
+1/1024 MHz rather than kHz. S2 needs a bounded 512-code capacitor search:
+it holds the midpoint of the widest RFPLL voltage-window interval, restoring
+its previous capacitor fields if none is found. A successful command still
+means a tuning attempt, not a guaranteed PLL lock.
+
+This follows the [eSpDR S3 investigation](https://github.com/h0m3us3r/eSpDR/commit/f279bf823eee41796dfd1ac21f13e1ed9b418c82).
+The older eagletest `set_freq_test()` calculation implies 8/9; external-tone
+measurements on the tested ESP32, S2, S3 and C3 instead confirm **5/6**.
+Tests use a HackRF source through antennas, source-on/off comparisons,
+known tone offsets, fractional PLL settings, and returns to normal tuning.
+They establish reception at discrete frequencies, not calibrated sensitivity
+or guaranteed performance throughout the interval. Sample-clock configuration
+is unchanged; burst timing and tone positions were checked at nominal 80 MS/s.
+
+C5, C6, C61 and S31 were also checked. Their analog register layouts differ:
+C5 places CKGEN in block `0x68`, while C61/S31's SDK resets CKGEN through
+block `0x62`. The legacy `0x65:0[4]` selector is not exposed as on the older
+chips, and no equivalent mode has been qualified. They keep their existing
+frequency programming; do not apply the old bit or frequency multiplier to
+them. The shared `rx_lo.h` deliberately accepts only the four verified chips.
+
 The browser negotiates ranges for every chip and uses them for text entry and
 spectrum click-to-tune. Older firmware retains its advertised limits, with
 legacy fallbacks only when it does not advertise `TUNEEXT`. An informational

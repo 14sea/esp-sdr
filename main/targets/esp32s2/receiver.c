@@ -20,6 +20,9 @@
 #include "burst_serial.h"
 #include "spectrum.h"
 #include "rx_tuning.h"
+#include "rx_lo.h"
+#include "esp_rom_sys.h"
+#include "pll.h"
 
 /* S2 vendor adctrig uses SRAM at 0x3fff0000 with owner mask 7.
  * Reserve the first three 16 KiB banks and both CPU aliases. Leave the top
@@ -42,9 +45,14 @@ extern void rom_set_rxclk_en(unsigned);
 extern void set_chanfreq(unsigned,unsigned);
 extern void rom_set_rf_freq_offset(unsigned,unsigned,int);
 static void s2_tune(unsigned mhz) {
+    rx_lo_plan_t plan=rx_lo_plan(mhz);
+    rx_lo_select(false);
     bool channel=(mhz>=2412 && mhz<=2472 && (mhz-2412)%5==0)||mhz==2484;
     set_chanfreq(channel?mhz:2412,0);
-    if(!channel)rom_set_rf_freq_offset(0,mhz,0); /* 40 MHz crystal; direct PLL MHz. */
+    if(!channel) {
+        rom_set_rf_freq_offset(0,plan.mhz,plan.offset_khz);
+        (void)s2_pll_calibrate();
+    }
 }
 
 #define S2_FREQ_MIN RX_FREQ_MIN
@@ -97,6 +105,8 @@ static void prepare_rx(void) {
     phy_pbus_xpd_rx_on(1);
     phy_set_rxclk_en(1);
     gain_apply();
+    rx_lo_select(rx_lo_plan(frequency_mhz).alternate);
+    esp_rom_delay_us(3000);
     rx_ready=true;
 }
 #include "filter_probe.h"
