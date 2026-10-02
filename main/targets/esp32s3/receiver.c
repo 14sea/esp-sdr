@@ -100,6 +100,13 @@ static void prepare_rx(void) {
     gain_apply();
     rx_ready=true;
 }
+/* A forced index update alone can leave continuous capture using stale RX
+ * state until the next tune. Apply gain changes through the same receiver
+ * setup as FREQ, before acknowledging the command. */
+static void gain_reconfigure(void) {
+    rx_ready=false;
+    prepare_rx();
+}
 #include "filter_probe.h"
 
 static size_t packed_size(unsigned n) { return (n*20u+7u)/8u; }

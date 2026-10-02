@@ -64,6 +64,10 @@ static void gain_apply(void) {
     force_rx_gain(manual,gain_code,0);
 #endif
 }
+#if CONFIG_IDF_TARGET_ESP32S3
+/* The S3 backend restarts its continuous RX path when gain changes. */
+static void gain_reconfigure(void);
+#endif
 static bool gain_command(const char *line) {
     unsigned code;char extra;
     if(!strcmp(line,"GAIN?")) {
@@ -73,5 +77,10 @@ static bool gain_command(const char *line) {
     else if(sscanf(line,"GAIN MANUAL %u %c",&code,&extra)==1 && code<=gain_max()) {
         gain_mode=GAIN_MANUAL;gain_code=code;
     } else return false;
-    gain_apply();reply("OK\n");return true;
+#if CONFIG_IDF_TARGET_ESP32S3
+    gain_reconfigure();
+#else
+    gain_apply();
+#endif
+    reply("OK\n");return true;
 }
