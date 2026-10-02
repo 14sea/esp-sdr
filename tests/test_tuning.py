@@ -144,7 +144,10 @@ static unsigned phy_i2c_readReg(unsigned a,unsigned b,unsigned c){return 0;}
 '''
         for target in ['esp32s2','esp32s3','esp32s31']:
             with self.subTest(target=target):
-                source=(MAIN/'targets'/target/'receiver.c').read_text()
+                target_dir=MAIN/'targets'/target
+                if target=='esp32s31':
+                    target_dir /= 'burst'
+                source=(target_dir/'receiver.c').read_text()
                 name='command' if target=='esp32s31' else 'handle_command'
                 handler=source[source.index('static void '+name+'('):source.index('void app_main(')]
                 self.compile_run(f'#define CONFIG_IDF_TARGET_{target.upper()} 1\n'+stub+handler+r'''

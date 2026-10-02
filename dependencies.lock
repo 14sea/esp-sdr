@@ -54,6 +54,6 @@ direct_dependencies:
 - espressif/esp_tinyusb
 - espressif/tinyusb
 - idf
-manifest_hash: 09ab9a8c5e22bed05e7524367ab84894b87c8c0e0f2f0db214524a1dc45f5c1f
+manifest_hash: 73c872021c6a9d79ab3191e435ffb0c1db3971524940a0eb4dcea09066a67bc4
 target: esp32s31
 version: 3.0.0

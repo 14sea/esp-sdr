@@ -45,7 +45,7 @@ While we have a very good understanding of how the IQ sampling functionality wor
 | ESP32-P4 | ❌ | — | — | — | — |
 | ESP32-S2 | ✅ | USB-OTG CDC | GPIO43 / GPIO44 | 4 MB | — |
 | ESP32-S3 | ✅ | Serial/JTAG | GPIO43 / GPIO44 | 2 MB | — |
-| ESP32-S31 | ✅ | Serial/JTAG | GPIO58 / GPIO59 | 2 MB | [High Speed USB / Ethernet streaming at up to 40 MSa/s](docs/s31-streaming.md) (experimental) |
+| ESP32-S31 | ✅ | Serial/JTAG | GPIO58 / GPIO59 | 2 MB | [High Speed USB / Ethernet streaming at up to 40 MSa/s (experimental)](#s31-streaming) |
 
 ✅ Supported · 🚧 Not yet supported · ❌ Unsupported (no integrated radio).
 
@@ -53,6 +53,9 @@ USB, UART, and flash requirements above refer to the standard profiles; see each
 special profile for its board requirements.
 
 ## Special Chip- / Board-Specific Profiles
+
+<a id="s31-streaming"></a>
+
 ### **ESP32-S31**: Ethernet / high-speed USB streaming
 
 **Experimental:** The S31 streaming mode is under development. Signal quality,
@@ -64,6 +67,8 @@ with Gigabit Ethernet and native high-speed USB. It streams receive-only I/Q to
 status, with rates up to 20 MSa/s over USB and 40 MSa/s over Ethernet using
 8-bit I plus 8-bit Q. The ordinary `esp32s31` profile remains the serial burst/FFT firmware
 for ESP-WebSDR. See [streaming build, architecture, and protocol](docs/s31-streaming.md).
+
+![Gqrx displaying an LTE signal at 2.63 GHz, continuously sampled at 40 MSa/s over Ethernet with an ESP32-S31 and SoapyESPSDR.](docs/gqrx-esp-sdr.png)
 
 ## On-chip spectrum streaming
 
@@ -143,6 +148,9 @@ Substitute the target and paths for your chip. S31 also requires `idf.py --previ
 
 - `main/targets/<target>/`: chip receiver or adapter, tuning helpers, and the
   linker guard for its capture SRAM. CMake selects only the requested target.
+- `main/targets/esp32s31/burst/`: serial IQ capture and on-chip FFT firmware.
+- `main/targets/esp32s31/streaming/`: continuous USB/Ethernet IQ application for
+  SoapyESPSDR. Both S31 profiles share `main/targets/esp32s31/tuning.h`.
 - `main/families/c5_c6_c61/`: receiver shared by C5, C6, and C61; its `chip.h`
   comes from the selected target directory.
 - `main/common/`: burst serial transport, gain control, limits, and bandwidth
@@ -153,7 +161,7 @@ Substitute the target and paths for your chip. S31 also requires `idf.py --previ
 The application component and UART configuration stay in `main/`. Target SDK
 defaults stay at the repository root for the build tools and ESP-IDF defaults
 lookup. The firmware uses the burst protocol over UART/native USB; the separate
-`platform/s31_stream/` application implements the receive-only Ethernet and
+`main/targets/esp32s31/streaming/` application implements the receive-only Ethernet and
 vendor USB streaming profile.
 
 Run `python3 -m unittest discover -s tests` for host checks. Build every profile
@@ -233,4 +241,4 @@ Third-party components retain their own licenses and copyright notices,
 including the Apache-2.0 ESP-IDF compatibility code in
 `platform/esp32s2/esp_usb_cdc_rom_console/`, the pinned
 [ESP-DSP component](components/esp-dsp/LICENSE), and the derived FFT kernels
-in `main/targets/esp32s3/s3_fft_rnd.S` and `main/targets/esp32s31/s31_fft_rnd.S`.
+in `main/targets/esp32s3/s3_fft_rnd.S` and `main/targets/esp32s31/burst/s31_fft_rnd.S`.

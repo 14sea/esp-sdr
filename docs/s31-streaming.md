@@ -18,7 +18,7 @@ records hardware DC calibration, the branded web interface, and the IQ10 investi
 ## Build and connect
 
 The streaming SDK revision and dependencies are pinned in
-`firmware-targets.json`, `platform/s31_stream/idf_component.yml`, and
+`firmware-targets.json`, `main/targets/esp32s31/streaming/idf_component.yml`, and
 `dependencies.lock`. The first streaming configure downloads the pinned
 Espressif components. The ordinary burst builds remain independent of them.
 

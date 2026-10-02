@@ -17,8 +17,8 @@ class DcCalibration(unittest.TestCase):
             (tmp / 'freertos/task.h').write_text('void vTaskDelay(unsigned ticks);\n')
             output = tmp / 'test-dc'
             subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
-                            '-I'+str(tmp), '-I'+str(ROOT/'platform/s31_stream'),
-                            str(ROOT/'platform/s31_stream/dc.c'),
+                            '-I'+str(tmp), '-I'+str(ROOT/'main/targets/esp32s31/streaming'),
+                            str(ROOT/'main/targets/esp32s31/streaming/dc.c'),
                             str(ROOT/'tests/dc_calibration_test.c'), '-lm', '-o', str(output)], check=True)
             subprocess.run([str(output)], check=True)
 

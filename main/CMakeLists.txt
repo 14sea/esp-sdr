@@ -1,6 +1,6 @@
 idf_build_get_property(streaming ESP_SDR_STREAMING)
 if(streaming)
-    idf_component_register(REQUIRES s31_stream)
+    idf_component_register(REQUIRES streaming)
     return()
 endif()
 set(esp_sdr_supported_targets esp32 esp32c3 esp32c5 esp32c6 esp32c61 esp32s2 esp32s3 esp32s31)
@@ -11,6 +11,11 @@ endif()
 option(SAMPLE_RATE_PROBE "Build volatile hardware sample-rate diagnostics (never package)" OFF)
 
 set(target_dir "targets/${IDF_TARGET}")
+set(target_includes "${target_dir}")
+if(IDF_TARGET STREQUAL "esp32s31")
+    set(target_dir "${target_dir}/burst")
+    list(APPEND target_includes "${target_dir}")
+endif()
 set(receiver "${target_dir}/receiver.c")
 set(sources "common/burst_serial.c" "common/spectrum_stats.c")
 set(dependencies esp_phy esp_wifi nvs_flash esp_timer esp_driver_uart esp-dsp)
@@ -56,7 +61,7 @@ endif()
 
 idf_component_register(SRCS "${receiver}" ${sources}
     LDFRAGMENTS ${fragments}
-    PRIV_INCLUDE_DIRS "common" "${target_dir}" "diagnostics"
+    PRIV_INCLUDE_DIRS "common" ${target_includes} "diagnostics"
     REQUIRES ${dependencies})
 
 # Keep the linker guard beside the backend whose SRAM aperture it protects.
