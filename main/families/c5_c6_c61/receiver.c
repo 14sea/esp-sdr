@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "esp_phy_cert_test.h"
 #include "esp_rom_crc.h"
+#include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
@@ -97,6 +98,10 @@ static void prepare_rx(void) {
     if(rx_filter>=0)phy_rx_filter_mode((unsigned)rx_filter);
 #endif
     gain_apply();
+#if CONFIG_IDF_TARGET_ESP32C6
+    rx_lo_select(rx_lo_plan(frequency_mhz).alternate);
+    esp_rom_delay_us(3000);
+#endif
     rx_ready=true;
 }
 #include "filter_probe.h"

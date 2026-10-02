@@ -19,6 +19,7 @@
 #include "burst_serial.h"
 #include "spectrum.h"
 #include "rx_tuning.h"
+#include "rx_lo.h"
 
 /* Pinned C2 librftest adctrig uses 32 KiB at 0x3fcc0000 and
  * SRAM usage 2 in SENSITIVE 0x600c1018. heap_guard.c also excludes the
@@ -61,8 +62,10 @@ static void tune_rx(unsigned mhz) {
     /* Calibrate using a real Wi-Fi channel, then program exact PLL MHz.
      * The channel API otherwise rounds off-grid frequencies. This is an
      * attempt range; PLL lock and reception are not guaranteed throughout. */
+    rx_lo_plan_t plan=rx_lo_plan(mhz);
+    rx_lo_select(false);
     set_chanfreq(channel?mhz:2412,0);
-    if(!channel)phy_set_freq(mhz,0);
+    if(!channel)phy_set_freq(plan.mhz,plan.offset_khz);
 }
 #define send_bytes burst_serial_send
 static void reply(const char *s) { (void)send_bytes(s,strlen(s)); }
@@ -78,6 +81,8 @@ static void prepare_rx(void) {
     rom_pbus_xpd_rx_on(1);
     set_rxclk_en(1);
     gain_apply();
+    rx_lo_select(rx_lo_plan(frequency_mhz).alternate);
+    esp_rom_delay_us(3000);
     rx_ready=true;
 }
 

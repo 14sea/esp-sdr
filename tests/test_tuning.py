@@ -29,8 +29,8 @@ static int pll_offset;
 static unsigned ckgen=0x63, cap=0xb0;
 unsigned ram_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){assert(r==0);assert((b==0x65 && h==4)||(b==0x62 && h==1));return b==0x65?ckgen:cap;}
 void ram_chip_i2c_writeReg(unsigned b,unsigned h,unsigned r,unsigned v){assert(r==0);assert((b==0x65 && h==4)||(b==0x62 && h==1));if(b==0x65)ckgen=v;else cap=v;}
-unsigned rom_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){assert(b==0x65 && h==1 && r==0);return ckgen;}
-void rom_chip_i2c_writeReg(unsigned b,unsigned h,unsigned r,unsigned v){assert(b==0x65 && h==1 && r==0);ckgen=v;}
+unsigned rom_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){assert(h==1 && ((b==0x65 && r==0)||(b==0x62 && r==16)));return ckgen;}
+void rom_chip_i2c_writeReg(unsigned b,unsigned h,unsigned r,unsigned v){assert(h==1 && ((b==0x65 && r==0)||(b==0x62 && r==16)));ckgen=v;}
 #define rom1_chip_i2c_readReg rom_chip_i2c_readReg
 #define rom1_chip_i2c_writeReg rom_chip_i2c_writeReg
 unsigned char phy_param[50] = {[49]=2};
@@ -61,7 +61,7 @@ unsigned rtc_clk_xtal_freq_get(void){return 40;}
             helpers[target] = (f'#include "targets/{target}/tuning.h"\n', call)
         for target, (helper, call) in helpers.items():
             with self.subTest(target=target):
-                lo = target in ('esp32','esp32s2','esp32s3','esp32c3')
+                lo = target in ('esp32','esp32s2','esp32s3','esp32c2','esp32c3','esp32c6')
                 setup = f'#define CONFIG_IDF_TARGET_{target.upper()} 1\n'
                 setup += '#include "rx_lo.h"\n' if lo else ''
                 if target=='esp32s2':setup += 'static bool s2_pll_calibrate(void){return true;}\n'
@@ -72,7 +72,7 @@ int main(void){
   assert(rx_frequency_valid(f));
   CALL;
   unsigned expected_khz=f*1000u;
-#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3
+#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C6
   if(f>=1842 && f<2210)expected_khz=f*1200u;
   assert(ckgen==0x63); /* Calibration must leave the selector in normal mode. */
 #endif
@@ -102,8 +102,9 @@ int main(void){
 '''.replace('CALL',call).replace('EXPECTED','(f>3000?5180u:2412u)' if target=='esp32c5' else '(channel?f:2412u)'))
 
     def test_alternate_lo_setup_and_return_to_normal(self):
-        for target, tune in [('esp32s2', 's2_tune'), ('esp32s3', 's3_tune'), ('esp32c3', 'tune_rx')]:
-            source = (MAIN/'targets'/target/'receiver.c').read_text()
+        for target, tune in [('esp32s2', 's2_tune'), ('esp32s3', 's3_tune'), ('esp32c3', 'tune_rx'), ('esp32c2', 'tune_rx'), ('esp32c6', 'c6_tune')]:
+            path = MAIN/'families/c5_c6_c61/receiver.c' if target=='esp32c6' else MAIN/'targets'/target/'receiver.c'
+            source = path.read_text()
             start = source.index('static void prepare_rx(void) {')
             prepare = source[start:source.index('\n}', start)+2]
             with self.subTest(target=target):
@@ -113,13 +114,16 @@ int main(void){
 static unsigned ckgen, frequency_mhz, setups, delays;
 static bool rx_ready;
 enum {rx_prep=3, WIFI_SECOND_CHAN_NONE=0};
-unsigned rom_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){assert(b==0x65 && h==1 && r==0);return ckgen;}
-void rom_chip_i2c_writeReg(unsigned b,unsigned h,unsigned r,unsigned v){assert(b==0x65 && h==1 && r==0);ckgen=v;}
+unsigned rom_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){assert(h==1 && (NEW_SELECTOR ? b==0x62 && r==16 : b==0x65 && r==0));return ckgen;}
+void rom_chip_i2c_writeReg(unsigned b,unsigned h,unsigned r,unsigned v){assert(h==1 && (NEW_SELECTOR ? b==0x62 && r==16 : b==0x65 && r==0));ckgen=v;}
 #define rom1_chip_i2c_readReg rom_chip_i2c_readReg
 #define rom1_chip_i2c_writeReg rom_chip_i2c_writeReg
 #include "rx_lo.h"
 static void TUNE(unsigned f){assert(f==frequency_mhz);rx_lo_select(false);setups++;}
-static void check_normal(void){assert(!(ckgen&16));}
+static void check_normal(void){assert(!(ckgen&RX_LO_MASK));}
+#if CONFIG_IDF_TARGET_ESP32C6
+static void phy_chip_set_chan(unsigned f,unsigned mode){assert(mode==0);TUNE(f);}
+#endif
 static void on(unsigned v){assert(v==1);check_normal();}
 #define phy_stop_tx_tone on
 #define phy_rom_stop_tx_tone on
@@ -132,22 +136,23 @@ static void on(unsigned v){assert(v==1);check_normal();}
 #define rom_pbus_xpd_rx_on on
 #define phy_set_rxclk_en on
 #define rom_set_rxclk_en on
+#define set_rxclk_en on
 #define gain_apply check_normal
 static void esp_rom_delay_us(unsigned n){assert(n==3000);delays++;}
 static void esp_wifi_set_channel(unsigned a,unsigned b){assert(0);}
 static void force_rx_gain(unsigned a,unsigned b,unsigned c){assert(0);}
-'''.replace('TUNE',tune)+prepare+r'''
+'''.replace('TUNE',tune).replace('NEW_SELECTOR', '1' if target in ('esp32c2','esp32c6') else '0')+prepare+r'''
 int main(void){
  const unsigned frequencies[]={2412,2000,2001,1841,1842,2209,2210,2004,2484,6000};
  for(unsigned value=0;value<256;value++){
-  ckgen=value;rx_lo_select(true);assert(ckgen==(value|16));
-  rx_lo_select(false);assert(ckgen==(value&~16u));
+  ckgen=value;rx_lo_select(true);assert(ckgen==(value|RX_LO_MASK));
+  rx_lo_select(false);assert(ckgen==(value&~RX_LO_MASK));
  }
  for(unsigned n=0;n<sizeof(frequencies)/sizeof(frequencies[0]);n++){
   frequency_mhz=frequencies[n];rx_ready=false;ckgen=0xe3;
   unsigned before=setups;prepare_rx();
   assert(rx_ready && setups==before+1);
-  assert(ckgen==(rx_lo_plan(frequency_mhz).alternate?0xf3:0xe3));
+  assert(ckgen==(rx_lo_plan(frequency_mhz).alternate?(0xe3|RX_LO_MASK):0xe3));
   before=delays;prepare_rx();assert(delays==before);
  }
 }
