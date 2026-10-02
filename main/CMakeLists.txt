@@ -1,3 +1,8 @@
+idf_build_get_property(streaming ESP_SDR_STREAMING)
+if(streaming)
+    idf_component_register(REQUIRES s31_stream)
+    return()
+endif()
 set(esp_sdr_supported_targets esp32 esp32c3 esp32c5 esp32c6 esp32c61 esp32s2 esp32s3 esp32s31)
 if(NOT IDF_TARGET IN_LIST esp_sdr_supported_targets)
     message(FATAL_ERROR "No ESP-SDR RF backend for ${IDF_TARGET}. Supported targets: ${esp_sdr_supported_targets}")

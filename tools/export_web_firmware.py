@@ -64,6 +64,8 @@ def export(build, output, board, label, version, allow_larger_flash=False):
         revision=board, label=label, target=target, chip=chip, version=version,
         flash_size=settings['flash_size'], flash_size_policy='minimum' if allow_larger_flash else 'exact',
         flash_settings=settings, esptool_args=args['extra_esptool_args'], parts=parts)})
+    if re.search(r'^ESP_SDR_STREAMING:BOOL=ON$', cache, re.MULTILINE):
+        manifest['variants'][board]['application'] = 'soapysdr'
     dates = [date for _, data in payloads if (date := firmware_build_date(data))]
     if dates:
         manifest['variants'][board]['build_date'] = dates[-1]

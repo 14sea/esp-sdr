@@ -1,0 +1,7 @@
+idf_component_register(SRCS "receiver.c" "dc.c" "control.c" "network.c" "usb.c"
+    "../../main/common/burst_gain_table.c"
+    INCLUDE_DIRS "." "../../main/common" "../../main/targets/esp32s31"
+    REQUIRES esp_wifi esp_phy esp_psram esp_mm nvs_flash esp_event esp_timer esp_driver_parlio
+    esp_driver_gpio esp_eth esp_netif esp_http_server espressif__esp_tinyusb espressif__cjson
+    EMBED_TXTFILES "index.html" "logo.svg")
+target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=phy_write_gain_mem")

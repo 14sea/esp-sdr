@@ -37,6 +37,17 @@ class FirmwareExport(unittest.TestCase):
         self.assertEqual(variant['parts'][0]['offset'], 65536)
         self.assertIn('0x10000 esp32s3/0-app.bin', (self.root / 'output/flash_args').read_text())
 
+    def test_streaming_profile_identifies_its_application(self):
+        (self.build / 'CMakeCache.txt').write_text('ESP_SDR_STREAMING:BOOL=ON\n')
+        (self.build / 'config/sdkconfig.json').write_text(json.dumps({'IDF_TARGET': 'esp32s31'}))
+        self.args['extra_esptool_args']['chip'] = 'esp32s31'
+        self.save_args()
+        path = exporter.export(self.build, self.root / 'output', 'esp32s31-stream',
+                               'S31 SoapyESPSDR', 'test', True)
+        variant = json.loads(path.read_text())['variants']['esp32s31-stream']
+        self.assertEqual(variant['application'], 'soapysdr')
+        self.assertEqual(variant['target'], 'esp32s31')
+
     def test_build_date_from_image_descriptor(self):
         data = bytearray(144)
         data[32:36] = bytes.fromhex('3254cdab')

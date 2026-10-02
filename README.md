@@ -31,21 +31,39 @@ While we have a very good understanding of how the IQ sampling functionality wor
 
 ## Chip support
 
-| Chip | Status | Native USB | UART0 TX / RX | Minimum flash |
-| --- | --- | --- | --- | --- |
-| ESP32 | ✅ Supported | — | GPIO1 / GPIO3 | 2 MB |
-| ESP32-C2 | 🚧 Unsupported | — | — | — |
-| ESP32-C3 | ✅ Supported | Serial/JTAG | GPIO21 / GPIO20 | 2 MB |
-| ESP32-C5 | ✅ Supported | Serial/JTAG | GPIO11 / GPIO12 | 2 MB |
-| ESP32-C6 | ✅ Supported | Serial/JTAG | GPIO16 / GPIO17 | 2 MB |
-| ESP32-C61 | ✅ Supported | Serial/JTAG | GPIO11 / GPIO10 | 2 MB |
-| ESP32-H2 | 🚧 Unsupported | — | — | — |
-| ESP32-H21 | 🚧 Unsupported | — | — | — |
-| ESP32-H4 | 🚧 Unsupported | — | — | — |
-| ESP32-P4 | ❌ Unsupported; no integrated radio | — | — | — |
-| ESP32-S2 | ✅ Supported | USB-OTG CDC | GPIO43 / GPIO44 | 4 MB |
-| ESP32-S3 | ✅ Supported | Serial/JTAG | GPIO43 / GPIO44 | 2 MB |
-| ESP32-S31 | ✅ Supported | Serial/JTAG | GPIO58 / GPIO59 | 2 MB |
+| Chip | Status | Native USB | UART0 TX / RX | Minimum flash | Special profiles |
+| --- | --- | --- | --- | --- | --- |
+| ESP32 | ✅ | — | GPIO1 / GPIO3 | 2 MB | — |
+| ESP32-C2 | 🚧 | — | — | — | — |
+| ESP32-C3 | ✅ | Serial/JTAG | GPIO21 / GPIO20 | 2 MB | — |
+| ESP32-C5 | ✅ | Serial/JTAG | GPIO11 / GPIO12 | 2 MB | — |
+| ESP32-C6 | ✅ | Serial/JTAG | GPIO16 / GPIO17 | 2 MB | — |
+| ESP32-C61 | ✅ | Serial/JTAG | GPIO11 / GPIO10 | 2 MB | — |
+| ESP32-H2 | 🚧 | — | — | — | — |
+| ESP32-H21 | 🚧 | — | — | — | — |
+| ESP32-H4 | 🚧 | — | — | — | — |
+| ESP32-P4 | ❌ | — | — | — | — |
+| ESP32-S2 | ✅ | USB-OTG CDC | GPIO43 / GPIO44 | 4 MB | — |
+| ESP32-S3 | ✅ | Serial/JTAG | GPIO43 / GPIO44 | 2 MB | — |
+| ESP32-S31 | ✅ | Serial/JTAG | GPIO58 / GPIO59 | 2 MB | [High Speed USB / Ethernet streaming at up to 40 MSa/s](docs/s31-streaming.md) (experimental) |
+
+✅ Supported · 🚧 Not yet supported · ❌ Unsupported (no integrated radio).
+
+USB, UART, and flash requirements above refer to the standard profiles; see each
+special profile for its board requirements.
+
+## Special Chip- / Board-Specific Profiles
+### **ESP32-S31**: Ethernet / high-speed USB streaming
+
+**Experimental:** The S31 streaming mode is under development. Signal quality,
+including the remaining DC peak, still needs improvement.
+
+The separate **`esp32s31-stream`** profile targets the ESP32-S31 Function-CoreBoard
+with Gigabit Ethernet and native high-speed USB. It streams receive-only I/Q to
+**SoapyESPSDR** and includes an on-device web page for receiver controls and
+status, with rates up to 20 MSa/s over USB and 40 MSa/s over Ethernet using
+8-bit I plus 8-bit Q. The ordinary `esp32s31` profile remains the serial burst/FFT firmware
+for ESP-WebSDR. See [streaming build, architecture, and protocol](docs/s31-streaming.md).
 
 ## On-chip spectrum streaming
 
@@ -134,8 +152,9 @@ Substitute the target and paths for your chip. S31 also requires `idf.py --previ
 
 The application component and UART configuration stay in `main/`. Target SDK
 defaults stay at the repository root for the build tools and ESP-IDF defaults
-lookup. The firmware uses the burst protocol over UART/native USB; the former
-Ethernet and vendor USB streaming application is no longer included.
+lookup. The firmware uses the burst protocol over UART/native USB; the separate
+`platform/s31_stream/` application implements the receive-only Ethernet and
+vendor USB streaming profile.
 
 Run `python3 -m unittest discover -s tests` for host checks. Build every profile
 with `tools/build_firmware.py` and its pinned SDK before distributing a change;
