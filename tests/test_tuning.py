@@ -38,6 +38,8 @@ unsigned rtc_clk_xtal_freq_get(void){return 40;}
         helpers = {}
         for target, start, end, call in [
             ('esp32', 'static void tune_rx(', 'static bool capture_rate(', 'tune_rx(f)'),
+            ('esp32c2', 'static void tune_rx(', '#define send_bytes', 'tune_rx(f)'),
+            ('esp32h2', 'static void tune_rx(', '#define send_bytes', 'tune_rx(f)'),
             ('esp32c3', 'static void tune_rx(', '#define send_bytes', 'tune_rx(f)'),
             ('esp32s2', 'static void s2_tune(', '#define S2_FREQ_MIN', 's2_tune(f)'),
             ('esp32s3', 'static void s3_tune(', '#define S3_FREQ_MIN', 's3_tune(f)'),

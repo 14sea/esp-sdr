@@ -7,6 +7,14 @@
 {"continuous":false,"transports":["USB","UART"],"profiles":[[80000000,0,256,1,1,1],[80000000,0,512,1,1,0]]}
 ```
 
+C2 supports UART snapshot spectra at 80/40/16 MS/s (codes 0/1/6),
+with 256/512/1024/2048 bins at each rate.
+
+H2 uses rate codes 7/6/8/9 for nominal 32/16/10.667/6.4 MS/s. Code 8 is
+32 MHz / 3, represented as 10666667 Hz in integer protocol fields. Existing
+codes 0–7 retain their meanings. H2 provides snapshot spectra at
+256/512/1024/2048 bins on all four rates over USB or UART.
+
 Each profile contains `[sample_rate_hz, rate_code, fft_bins, stride,
 units_per_frame, continuous]`. The last field is optional for compatibility;
 five-field profiles inherit the top-level `continuous` value. Capabilities

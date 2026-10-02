@@ -66,6 +66,8 @@ def export(build, output, board, label, version, allow_larger_flash=False):
         flash_settings=settings, esptool_args=args['extra_esptool_args'], parts=parts)})
     if re.search(r'^ESP_SDR_STREAMING:BOOL=ON$', cache, re.MULTILINE):
         manifest['variants'][board]['application'] = 'soapysdr'
+    if target == "esp32c2":
+        manifest["variants"][board]["xtal_mhz"] = config["XTAL_FREQ"]
     dates = [date for _, data in payloads if (date := firmware_build_date(data))]
     if dates:
         manifest['variants'][board]['build_date'] = dates[-1]

@@ -10,6 +10,14 @@
       "preview": false
     },
     {
+      "id": "esp32c2",
+      "target": "esp32c2",
+      "label": "ESP32-C2 (26 MHz crystal, 2 MB or larger, UART)",
+      "idf_ref": "25fe69f946311abdaf9ad56591f25fedbc20ac98",
+      "allow_larger_flash": true,
+      "preview": false
+    },
+    {
       "id": "esp32c3",
       "target": "esp32c3",
       "label": "ESP32-C3 (2 MB or larger)",
@@ -53,6 +61,14 @@
       "id": "esp32c6",
       "target": "esp32c6",
       "label": "ESP32-C6 (2 MB or larger)",
+      "idf_ref": "25fe69f946311abdaf9ad56591f25fedbc20ac98",
+      "allow_larger_flash": true,
+      "preview": false
+    },
+    {
+      "id": "esp32h2",
+      "target": "esp32h2",
+      "label": "ESP32-H2 (2 MB or larger)",
       "idf_ref": "25fe69f946311abdaf9ad56591f25fedbc20ac98",
       "allow_larger_flash": true,
       "preview": false

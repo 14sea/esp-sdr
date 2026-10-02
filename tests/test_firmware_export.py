@@ -91,3 +91,13 @@ class FirmwareExport(unittest.TestCase):
         variant = json.loads(self.export().read_text())['variants']['esp32s3']
         self.assertEqual(variant['flash_size'], '16MB')
         self.assertIn('--no-stub', (self.root / 'output/flash_command.txt').read_text())
+
+    def test_c2_records_required_crystal(self):
+        (self.build / 'config/sdkconfig.json').write_text(json.dumps(
+            {'IDF_TARGET': 'esp32c2', 'XTAL_FREQ': 26}))
+        self.args['extra_esptool_args']['chip'] = 'esp32c2'
+        self.save_args()
+        path = exporter.export(self.build, self.root / 'output', 'esp32c2', 'C2', 'test', True)
+        variant = json.loads(path.read_text())['variants']['esp32c2']
+        self.assertEqual(variant['xtal_mhz'], 26)
+        self.assertEqual(variant['chip'], 'ESP32-C2')

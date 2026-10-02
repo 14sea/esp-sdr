@@ -22,10 +22,16 @@
 #define MAX_FFT 2048u
 #endif
 #define HEADER_BYTES 28u
-static int16_t fft_data[2 * MAX_FFT] __attribute__((aligned(16)));
-static int16_t window[MAX_FFT];
-static float powers[MAX_FFT];
-static uint8_t frame[HEADER_BYTES + MAX_FFT + 4];
+#if CONFIG_IDF_TARGET_ESP32C2
+/* Quiescent during RF capture; keep heap/stacks in the other SRAM banks. */
+#define SPEC_STORAGE __attribute__((section(".c2_spectrum"),aligned(16)))
+#else
+#define SPEC_STORAGE
+#endif
+static int16_t fft_data[2 * MAX_FFT] __attribute__((aligned(16))) SPEC_STORAGE;
+static int16_t window[MAX_FFT] SPEC_STORAGE;
+static float powers[MAX_FFT] SPEC_STORAGE;
+static uint8_t frame[HEADER_BYTES + MAX_FFT + 4] SPEC_STORAGE;
 static unsigned setup_n;
 static bool ready;
 spectrum_workspace_t spectrum_workspace(void) {
@@ -33,16 +39,18 @@ spectrum_workspace_t spectrum_workspace(void) {
     return (spectrum_workspace_t){fft_data,window,powers,frame};
 }
 
-static int16_t twiddles[MAX_FFT] __attribute__((aligned(16)));
+static int16_t twiddles[MAX_FFT] __attribute__((aligned(16))) SPEC_STORAGE;
 bool spectrum_fft_init(void) {
     if(!ready) ready=dsps_fft2r_init_sc16(twiddles,MAX_FFT)==ESP_OK;
     return ready;
 }
 
 static const unsigned rates[] = {
-#if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6
+#if CONFIG_IDF_TARGET_ESP32H2
+    0, 0, 0, 0, 0, 0, 16000000, 32000000, 10666667, 6400000
+#elif CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6
     80000000
-#elif CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2
+#elif CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C2
     80000000, 40000000, 0, 0, 0, 0, 16000000
 #else
     80000000, 40000000, 20000000, 10000000, 8000000, 4000000
@@ -61,7 +69,13 @@ static unsigned reverse(unsigned x, unsigned bits) {
 static int16_t clamp16(int32_t v) {return v>32767?32767:v< -32768?-32768:v;}
 
 static void capabilities(void) {
-    send_text("SPECINFO {\"continuous\":false,\"transports\":[\"USB\",\"UART\"],\"profiles\":[");
+    send_text("SPECINFO {\"continuous\":false,\"transports\":["
+#if CONFIG_IDF_TARGET_ESP32C2
+              "\"UART\""
+#else
+              "\"USB\",\"UART\""
+#endif
+              "],\"profiles\":[");
     bool first=true;
     for(unsigned r=0;r<sizeof(rates)/sizeof(rates[0]);r++) if(rates[r]) {
         for(unsigned n=256;n<=MAX_FFT;n*=2) {

@@ -14,7 +14,8 @@ Hardware AGC is the default; manual gain indices are not absolute gain in dB.
 
 Gain maxima come from the calibrated PHY tables where available. C61 and S3
 read AGCPWR_CTRL7 bits 8–14; C5 uses its PHY gain-table setup; S31 snapshots
-its generated table.
+its generated table. H2 reads the calibrated maximum from `phy_param[83]`
+and keeps Bluetooth RX forced on when returning to hardware AGC.
 
 C61 manual gain follows `sensor-firmware/main/iq/modem.c`: mirror the forced
 low-table entry into slot index+80, set AGC initial gain/threshold, and disable
@@ -30,6 +31,8 @@ Out-of-range requests are rejected.
 
 | Chip | Approximate bandwidth | BBTOP registers | Code width |
 | --- | --- | --- | --- |
+| H2 | 4–11 MHz | 0 | 7 bits |
+| C2 | 12–20 MHz | 4/5 | 6 bits |
 | ESP32 | 12–67 MHz | 1/2 | 7 bits |
 | C5 | 11–48 MHz | 6/7, two PHY modes | 6 bits |
 | C6 | 12–54 MHz | 4/5 | 6 bits |

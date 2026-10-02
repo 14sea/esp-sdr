@@ -34,12 +34,12 @@ While we have a very good understanding of how the IQ sampling functionality wor
 | Chip | Status | Native USB | UART0 TX / RX | Minimum flash | Special profiles |
 | --- | --- | --- | --- | --- | --- |
 | ESP32 | ✅ | — | GPIO1 / GPIO3 | 2 MB | — |
-| ESP32-C2 | 🚧 | — | — | — | — |
+| ESP32-C2 | ✅ (26 MHz crystal) | — | GPIO20 / GPIO19 | 2 MB | — |
 | ESP32-C3 | ✅ | Serial/JTAG | GPIO21 / GPIO20 | 2 MB | — |
 | ESP32-C5 | ✅ | Serial/JTAG | GPIO11 / GPIO12 | 2 MB | — |
 | ESP32-C6 | ✅ | Serial/JTAG | GPIO16 / GPIO17 | 2 MB | — |
 | ESP32-C61 | ✅ | Serial/JTAG | GPIO11 / GPIO10 | 2 MB | — |
-| ESP32-H2 | 🚧 | — | — | — | — |
+| ESP32-H2 | ✅ | Serial/JTAG | GPIO24 / GPIO23 | 2 MB | — |
 | ESP32-H21 | 🚧 | — | — | — | — |
 | ESP32-H4 | 🚧 | — | — | — | — |
 | ESP32-P4 | ❌ | — | — | — | — |
@@ -79,9 +79,11 @@ transport before offering this mode.
 | Chip | Continuous RF capture with on-chip FFT | Snapshot FFT |
 | --- | --- | --- |
 | ESP32 | — | 256–2048 bins; 16/40/80 MS/s; UART |
+| ESP32-C2 | — | 256–2048 bins; 80/40/16 MS/s; UART |
 | ESP32-C3 | 256 bins; 80 MS/s; native USB | 512–2048 bins over USB; 256–2048 over UART |
 | ESP32-C5 | — | 256–2048 bins; 4/8/10/20/40/80 MS/s |
 | ESP32-C6 | 256 bins; 80 MS/s; native USB | 512–2048 bins over USB; 256–2048 over UART |
+| ESP32-H2 | — | 256–2048 bins; 6.4/10.667/16/32 MS/s; USB or UART |
 | ESP32-C61 | 256 bins; 4/8/10/20/40/80 MS/s; native USB | 512/1024 bins over USB; 256–1024 over UART |
 | ESP32-S2 | — | 256–2048 bins; 16/40/80 MS/s; USB or UART |
 | ESP32-S3 | 256–2048 bins; 16/40/80 MS/s; native USB | — |
@@ -144,6 +146,20 @@ idf.py -B build-s3 -p /dev/ttyACM0 flash
 
 Substitute the target and paths for your chip. S31 also requires `idf.py --preview`.
 
+The C2 profile uses a **26 MHz crystal**, as on the tested ESP8684H board.
+For a 40 MHz board, select `CONFIG_XTAL_FREQ_40=y` in menuconfig and rebuild;
+the packaged browser image requires 26 MHz. C2 uses UART0 at 2 Mbaud by
+default. With a CH340 bridge, use the viewer's **Switch to 1 Mbaud** warning
+when transfers lose bytes; baud changes are session-only. C2 provides raw
+IQ8/IQ10 captures, hardware/manual gain, and snapshot FFTs. Continuous capture
+is not advertised; approximate analog bandwidth covers 12–20 MHz.
+See [C2 backend and validation](docs/esp32c2.md).
+
+The `esp32h2` profile uses the Bluetooth PHY capture engine and supports
+both native USB Serial/JTAG and UART0. It supports 32, 16, approximately 10.667 and 6.4 MS/s hardware sampling,
+plus approximately 4–11 MHz analog bandwidth control.
+See [H2 backend and validation](docs/esp32h2.md).
+
 ## Source layout
 
 - `main/targets/<target>/`: chip receiver or adapter, tuning helpers, and the
@@ -176,13 +192,15 @@ Hardware AGC is the default. `GAIN MANUAL <index>` sets manual gain;
 bandwidths, sample rates and bit depths. `BANDWIDTH <MHz>` sets approximate
 analog bandwidth; zero selects the widest setting.
 
-All eight chips accept tuning attempts from **100–6000 MHz in 1 MHz steps**.
+All supported burst targets accept tuning attempts from **100–6000 MHz in 1 MHz steps**.
 The viewer shows an informational warning outside 2400–2483.5 MHz, with
 5150–5895 MHz also treated as the supported 5 GHz Wi-Fi band on C5. The warning never blocks tuning.
 These are software attempt limits; the expanded range has not been hardware
 validated.
 
 - **ESP32:** 80/40/16 MS/s.
+- **C2:** 80/40/16 MS/s; up to 8,190 complex samples; approximately 12–20 MHz analog bandwidth.
+- **H2:** 32/16/10.667/6.4 MS/s; approximately 4–11 MHz analog bandwidth; up to 16,380 complex samples.
 - **C3:** 80 MS/s; 14–62 MHz analog bandwidth.
 - **C5:** 11–48 MHz bandwidth; selects its 5 GHz RF path above 3000 MHz.
 - **C61:** 80/40/20/10/8/4 MS/s; 13–54 MHz bandwidth.
