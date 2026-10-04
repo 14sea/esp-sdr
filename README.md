@@ -216,8 +216,12 @@ The viewer shows an informational warning outside 2400–2483.5 MHz, with
 These are software attempt limits, not a guaranteed reception range.
 ESP32, S2, S3, C2, C3 and C6 automatically use the experimental **5/6 LO mode from
 1842–2209 MHz**, extending reception down to about **1.84 GHz** on the tested
-boards. No extra command or browser setting is needed. C5, C61, H2 and S31
-retain their existing tuning; an equivalent divider mode is not yet verified.
+boards. No extra command or browser setting is needed. An equivalent divider
+mode is not yet verified on C5, C61, H2 or S31. C61 and S31 instead recover
+failed low-band PLL calibration automatically, with reception verified down
+to **2.18 GHz and 2.15 GHz**, respectively, on the tested boards. This uses
+hardware capacitor calibration and also applies to S31 streaming; the
+achievable range depends on the individual chip.
 
 - **ESP32:** 80/40/16 MS/s.
 - **C2:** 80/40/16 MS/s; up to 8,190 complex samples; approximately 12–20 MHz analog bandwidth.
