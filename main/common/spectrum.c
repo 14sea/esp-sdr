@@ -17,11 +17,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#if CONFIG_IDF_TARGET_ESP32C61
-#define MAX_FFT 1024u
-#else
 #define MAX_FFT 2048u
-#endif
 #define HEADER_BYTES 28u
 #if CONFIG_IDF_TARGET_ESP32C2
 /* Quiescent during RF capture; keep heap/stacks in the other SRAM banks. */

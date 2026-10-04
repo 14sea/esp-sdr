@@ -24,9 +24,9 @@ class SnapshotSpectrum(unittest.TestCase):
 #include "spectrum_stats.h"
 #include "burst_serial.h"
 #define ESP_OK 0
-#define CONFIG_IDF_TARGET_ESP32C3 1
 unsigned spectrum_dc_mode;
 static unsigned transforms,frames,wanted_units,wanted_n,wanted_detector;
+static char replies[4096];
 static uint32_t words[2048];
 static uint32_t esp_cpu_get_cycle_count(void){return 0;}
 static int64_t esp_timer_get_time(void){static int64_t t;return t+=1000;}
@@ -47,7 +47,10 @@ void spectrum_stats_emit(spectrum_stats_t *s,unsigned n,unsigned fs,uint32_t fft
 static bool acquire(unsigned n,unsigned rate,const uint32_t **p,unsigned *us){*p=words;*us=1;return true;}
 bool burst_serial_send(const void *data,size_t size){
  const uint8_t *b=data;
- if(size<4||memcmp(b,"SPC1",4))return true;
+ if(size<4||memcmp(b,"SPC1",4)){
+  assert(strlen(replies)+size<sizeof(replies));
+  strncat(replies,data,size);return true;
+ }
  frames++;assert(size==wanted_n+32);assert(b[20]==wanted_units&&b[21]==0);
  assert((b[22]&1)==wanted_detector);assert(b[27]==2);
  unsigned pairs=b[16]|b[17]<<8|b[18]<<16|b[19]<<24;
@@ -66,10 +69,18 @@ bool burst_serial_send(const void *data,size_t size){
  return true;
 }
 int main(void){
+ assert(spectrum_command("SPECINFO?",2412,acquire));
+ assert(strstr(replies,"[80000000,0,2048,1,1,0]"));
+#if CONFIG_IDF_TARGET_ESP32C61
+ assert(strstr(replies,"[4000000,5,2048,1,1,0]"));
+#endif
+ replies[0]=0;
+ assert(spectrum_command("SPEC 1 1 1 0 0 4096",2412,acquire));
+ assert(!strcmp(replies,"ERR spec_args\n"));
  for(wanted_n=256;wanted_n<=2048;wanted_n*=2)
  for(wanted_units=1;wanted_units<=8;wanted_units++)
  for(wanted_detector=0;wanted_detector<=1;wanted_detector++){
-  transforms=frames=0;char command[64];
+  transforms=frames=0;replies[0]=0;char command[64];
   snprintf(command,sizeof(command),"SPEC 1 1 %u %u 0 %u",wanted_units,wanted_detector,wanted_n);
   assert(spectrum_command(command,2412,acquire));
   assert(frames==1&&transforms==wanted_units);
@@ -81,6 +92,9 @@ int main(void){
             src = Path(tmp) / 'snapshot.c'
             src.write_text('#include <stdlib.h>\n' + stub + source + check)
             exe = Path(tmp) / 'snapshot'
-            subprocess.run(['cc', '-std=gnu11', '-O2', '-fsanitize=undefined',
-                            '-I' + str(ROOT / 'main/common'), str(src), '-lm', '-o', str(exe)], check=True)
-            subprocess.run([str(exe)], check=True)
+            for target in ['ESP32C3', 'ESP32C61']:
+                with self.subTest(target=target):
+                    subprocess.run(['cc', '-std=gnu11', '-O2', '-fsanitize=undefined',
+                                    f'-DCONFIG_IDF_TARGET_{target}=1',
+                                    '-I' + str(ROOT / 'main/common'), str(src), '-lm', '-o', str(exe)], check=True)
+                    subprocess.run([str(exe)], check=True)
