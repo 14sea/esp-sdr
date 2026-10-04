@@ -3,6 +3,7 @@
  * and flag bit 3 explicitly marks the gaps between acquisitions. */
 #include "spectrum.h"
 #include "spectrum_dc.h"
+#include "spectrum_math.h"
 #include "spectrum_stats.h"
 #include "esp_cpu.h"
 #include "burst_serial.h"
@@ -139,8 +140,9 @@ bool spectrum_command(const char *line, unsigned frequency_mhz, spectrum_acquire
             spectrum_dc_apply(&dc,fft_data,n);
             for(unsigned j=0;j<n;j++) {
                 float re=fft_data[2*j],im=fft_data[2*j+1],p=re*re+im*im;
-                unsigned k=reverse(j,log2n);
-                powers[k]=det?fmaxf(powers[k],p):powers[k]+p;
+                /* Keep FFT order while accumulating: reorder once per frame,
+                 * rather than once for every transform in that frame. */
+                powers[j]=det?fmaxf(powers[j],p):powers[j]+p;
             }
             ffts++;pairs+=n;
         }
@@ -150,8 +152,7 @@ bool spectrum_command(const char *line, unsigned frequency_mhz, spectrum_acquire
         frame[26]=log2n;frame[27]=2;
         for(unsigned j=0;j<n;j++) {
             float p=det?powers[j]:powers[j]/units;
-            float db=p>1?20*log10f(p):0;
-            frame[HEADER_BYTES+j]=db>=255?255:(uint8_t)(db+0.5f);
+            frame[HEADER_BYTES+reverse(j,log2n)]=spectrum_mean_power_code(p);
         }
         put32(HEADER_BYTES+n,esp_rom_crc32_le(0,frame,HEADER_BYTES+n));
         telemetry.busy+=(uint32_t)(esp_cpu_get_cycle_count()-busy_start);

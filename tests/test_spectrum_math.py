@@ -66,7 +66,15 @@ int main(void){
  for(uint64_t p=1;p<=UINT32_MAX;p=p*103/100+1){
   int expected=(int)lrint(20*log10((double)p));if(expected>255)expected=255;
   assert(abs((int)spectrum_power_code(p)-expected)<=1);
+  for(unsigned count=1;count<=8;count++){
+   float mean=(float)p/count;
+   int mean_expected=(int)lrint(20*log10((double)mean));
+   if(mean_expected<0)mean_expected=0;if(mean_expected>255)mean_expected=255;
+   assert(abs((int)spectrum_mean_power_code(mean)-mean_expected)<=1);
+  }
  }
+ assert(spectrum_mean_power_code(0)==0);
+ assert(spectrum_mean_power_code(INFINITY)==255);
  return 0;
 }
 '''
