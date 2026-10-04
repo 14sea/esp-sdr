@@ -31,7 +31,7 @@ While we have a very good understanding of how the IQ sampling functionality wor
 
 ## Chip support
 
-| Chip | Status | Native USB | UART0 TX / RX | Minimum flash | Special profiles |
+| Chip | Status | Native USB | UART0 TX / RX | Minimum flash | Special modes / firmware |
 | --- | --- | --- | --- | --- | --- |
 | ESP32 | ✅ | — | GPIO1 / GPIO3 | 2 MB | — |
 | ESP32-C2 | ✅ (26 MHz crystal) | — | GPIO20 / GPIO19 | 2 MB | — |
@@ -44,15 +44,15 @@ While we have a very good understanding of how the IQ sampling functionality wor
 | ESP32-H4 | 🚧 | — | — | — | — |
 | ESP32-P4 | ❌ | — | — | — | — |
 | ESP32-S2 | ✅ | USB-OTG CDC | GPIO43 / GPIO44 | 4 MB | — |
-| ESP32-S3 | ✅ | Serial/JTAG | GPIO43 / GPIO44 | 2 MB | — |
+| ESP32-S3 | ✅ | Serial/JTAG | GPIO43 / GPIO44 | 2 MB | [Continuous decimated I/Q over USB (15.625–250 kSa/s)](#s3-streaming) |
 | ESP32-S31 | ✅ | Serial/JTAG | GPIO58 / GPIO59 | 2 MB | [High Speed USB / Ethernet streaming at up to 40 MSa/s (experimental)](#s31-streaming) |
 
 ✅ Supported · 🚧 Not yet supported · ❌ Unsupported (no integrated radio).
 
-USB, UART, and flash requirements above refer to the standard profiles; see each
-special profile for its board requirements.
+USB, UART, and flash requirements above refer to the standard firmware; see each
+special firmware variant for its board requirements.
 
-## Special Chip- / Board-Specific Profiles
+## Special Chip- / Board-Specific Modes and Firmware
 
 <a id="s31-streaming"></a>
 
@@ -61,14 +61,32 @@ special profile for its board requirements.
 **Experimental:** The S31 streaming mode is under development. Signal quality,
 including the remaining DC peak, still needs improvement.
 
-The separate **`esp32s31-stream`** profile targets the ESP32-S31 Function-CoreBoard
+The separate **`esp32s31-stream`** firmware targets the ESP32-S31 Function-CoreBoard
 with Gigabit Ethernet and native high-speed USB. It streams receive-only I/Q to
-**SoapyESPSDR** and includes an on-device web page for receiver controls and
+**[SoapyESPSDR](https://github.com/ESPARGOS/SoapyESPSDR)** and includes an on-device web page for receiver controls and
 status, with rates up to 20 MSa/s over USB and 40 MSa/s over Ethernet using
-8-bit I plus 8-bit Q. The ordinary `esp32s31` profile remains the serial burst/FFT firmware
+8-bit I plus 8-bit Q. The ordinary `esp32s31` firmware provides serial burst/FFT capture
 for ESP-WebSDR. See [streaming build, architecture, and protocol](docs/s31-streaming.md).
 
 ![Gqrx displaying an LTE signal at 2.63 GHz, continuously sampled at 40 MSa/s over Ethernet with an ESP32-S31 and SoapyESPSDR.](docs/gqrx-esp-sdr.png)
+
+<a id="s3-streaming"></a>
+
+### **ESP32-S3**: Continuous I/Q streaming over USB
+
+The standard **`esp32s3`** firmware includes an **`IQS`** mode for continuous,
+decimated I/Q streaming over native USB Serial/JTAG. The second core filters
+and decimates the 16 MSa/s capture stream by powers of two from 64 to 1024,
+giving output rates from **250 down to 15.625 kSa/s**, with 4, 8 or 16 bits per
+I and Q component. This mode requires native USB; UART is not supported.
+
+Use [esp-sdr-bridge](https://github.com/z2labs/esp-sdr-bridge) to connect the
+receiver to SDR++, SDR#, Gqrx or GNU Radio through SpyServer / rtl_tcp.
+For custom clients, `IQS 0 64 8 6` starts a 250 kSa/s stream with 8-bit I and
+8-bit Q until the host sends a byte to stop it. Frames include sample indices,
+gap flags and CRC32 checksums; host stalls or processing overruns can cause
+sample loss. See the [continuous I/Q protocol](docs/iq-stream.md) for command
+options, sample formats, filtering and frequency-offset tuning.
 
 ## On-chip spectrum streaming
 
@@ -130,7 +148,7 @@ receive `ERR busy`.
 
 ## Build and flash
 
-[firmware-targets.json](firmware-targets.json) lists the supported profiles and
+[firmware-targets.json](firmware-targets.json) lists the supported firmware variants and
 pins their ESP-IDF commits, including the preview SDK for S31. Check out the
 matching SDK, initialize its submodules, run `install.sh <target>`, and source
 `export.sh`.
@@ -146,7 +164,7 @@ idf.py -B build-s3 -p /dev/ttyACM0 flash
 
 Substitute the target and paths for your chip. S31 also requires `idf.py --preview`.
 
-The C2 profile uses a **26 MHz crystal**, as on the tested ESP8684H board.
+The C2 firmware uses a **26 MHz crystal**, as on the tested ESP8684H board.
 For a 40 MHz board, select `CONFIG_XTAL_FREQ_40=y` in menuconfig and rebuild;
 the packaged browser image requires 26 MHz. C2 uses UART0 at 2 Mbaud by
 default. With a CH340 bridge, use the viewer's **Switch to 1 Mbaud** warning
@@ -155,7 +173,7 @@ IQ8/IQ10 captures, hardware/manual gain, and snapshot FFTs. Continuous capture
 is not advertised; approximate analog bandwidth covers 12–20 MHz.
 See [C2 backend and validation](docs/esp32c2.md).
 
-The `esp32h2` profile uses the Bluetooth PHY capture engine and supports
+The `esp32h2` firmware uses the Bluetooth PHY capture engine and supports
 both native USB Serial/JTAG and UART0. It supports 32, 16, approximately 10.667 and 6.4 MS/s hardware sampling,
 plus approximately 4–11 MHz analog bandwidth control.
 See [H2 backend and validation](docs/esp32h2.md).
@@ -166,7 +184,7 @@ See [H2 backend and validation](docs/esp32h2.md).
   linker guard for its capture SRAM. CMake selects only the requested target.
 - `main/targets/esp32s31/burst/`: serial IQ capture and on-chip FFT firmware.
 - `main/targets/esp32s31/streaming/`: continuous USB/Ethernet IQ application for
-  SoapyESPSDR. Both S31 profiles share `main/targets/esp32s31/tuning.h`.
+  SoapyESPSDR. Both S31 firmware variants share `main/targets/esp32s31/tuning.h`.
 - `main/families/c5_c6_c61/`: receiver shared by C5, C6, and C61; its `chip.h`
   comes from the selected target directory.
 - `main/common/`: burst serial transport, gain control, limits, and bandwidth
@@ -178,9 +196,9 @@ The application component and UART configuration stay in `main/`. Target SDK
 defaults stay at the repository root for the build tools and ESP-IDF defaults
 lookup. The firmware uses the burst protocol over UART/native USB; the separate
 `main/targets/esp32s31/streaming/` application implements the receive-only Ethernet and
-vendor USB streaming profile.
+vendor USB streaming firmware.
 
-Run `python3 -m unittest discover -s tests` for host checks. Build every profile
+Run `python3 -m unittest discover -s tests` for host checks. Build every firmware variant
 with `tools/build_firmware.py` and its pinned SDK before distributing a change;
 the CI matrix does this automatically. Preserve the target SRAM guards and
 gain-table linker wrappers when moving or refactoring receiver code.
