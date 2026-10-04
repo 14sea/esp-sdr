@@ -98,7 +98,7 @@ cJSON *control_request(const cJSON *request, stream_owner_t caller, const char *
     else if (strcmp(op->valuestring, "configure") && strcmp(op->valuestring, "start") &&
              strcmp(op->valuestring, "stop"))
         r = error("Unknown operation");
-    else if (!number(request, "frequency", &cfg.frequency_hz, 2300000000u, 2800000000u, 1000000) ||
+    else if (!number(request, "frequency", &cfg.frequency_hz, 2150000000u, 2800000000u, 1000000) ||
              !number(request, "dc_correction", &cfg.dc_correction, 0, 1, 1) ||
              !number(request, "gain", &cfg.gain, 0, receiver_gain_max, 1) ||
              !number(request, "rate", &cfg.rate, 1000000, 40000000, 1) ||

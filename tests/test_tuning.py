@@ -33,6 +33,9 @@ unsigned rom_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){assert(h==1 && (
 void rom_chip_i2c_writeReg(unsigned b,unsigned h,unsigned r,unsigned v){assert(h==1 && ((b==0x65 && r==0)||(b==0x62 && r==16)));ckgen=v;}
 #define rom1_chip_i2c_readReg rom_chip_i2c_readReg
 #define rom1_chip_i2c_writeReg rom_chip_i2c_writeReg
+unsigned phy_i2c_readReg(unsigned b,unsigned h,unsigned r){assert(b==0x62 && h==1 && r==12);return 0;}
+void phy_i2c_writeReg(unsigned b,unsigned h,unsigned r,unsigned v){assert(0);}
+void esp_rom_delay_us(unsigned us){(void)us;}
 unsigned char phy_param[50] = {[49]=2};
 void phy_chip_set_chan(unsigned f,unsigned m){assert(m==0);calibrated=pll=f;}
 void chip_v7_set_chan(unsigned f,unsigned m){phy_chip_set_chan(f,m);}
