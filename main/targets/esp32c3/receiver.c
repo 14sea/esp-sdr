@@ -17,6 +17,7 @@
 
 #include "burst_serial.h"
 #include "spectrum.h"
+#include "rx_recalibration.h"
 #include "rx_tuning.h"
 #include "rx_lo.h"
 #include "esp_rom_sys.h"
@@ -57,6 +58,11 @@ static bool frequency_valid(unsigned mhz) {
     return mhz>=C3_FREQ_MIN && mhz<=C3_FREQ_MAX;
 }
 static void tune_rx(unsigned mhz) {
+    static unsigned calibrated_mhz;
+    if (calibrated_mhz != mhz) {
+        rx_recalibrate(mhz);
+        calibrated_mhz = mhz;
+    }
     rx_lo_plan_t plan=rx_lo_plan(mhz);
     bool channel=(mhz>=2412 && mhz<=2472 && (mhz-2412)%5==0)||mhz==2484;
     rx_lo_select(false);

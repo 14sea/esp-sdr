@@ -19,6 +19,7 @@
 #include "soc/soc.h"
 
 #include "burst_serial.h"
+#include "rx_recalibration.h"
 #include "rx_tuning.h"
 #include "rx_lo.h"
 #include "esp_rom_sys.h"
@@ -47,6 +48,11 @@ extern void set_rf_freq_offset(unsigned,unsigned,int);
 static void s3_tune(unsigned mhz);
 static int s3_fofs; /* FOFS: PLL offset in kHz, applied from the next tune */
 static void s3_tune(unsigned mhz) {
+    static unsigned calibrated_mhz;
+    if (calibrated_mhz != mhz) {
+        rx_recalibrate(mhz);
+        calibrated_mhz = mhz;
+    }
     rx_lo_plan_t plan=rx_lo_plan(mhz);
     /* A PLL offset also requires direct tuning on Wi-Fi channel frequencies. */
     bool channel=!s3_fofs && ((mhz>=2412 && mhz<=2472 && (mhz-2412)%5==0)||mhz==2484);

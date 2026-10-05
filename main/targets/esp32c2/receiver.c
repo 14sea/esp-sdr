@@ -18,6 +18,7 @@
 
 #include "burst_serial.h"
 #include "spectrum.h"
+#include "rx_recalibration.h"
 #include "rx_tuning.h"
 #include "rx_lo.h"
 
@@ -58,6 +59,11 @@ static bool frequency_valid(unsigned mhz) {
     return mhz>=C2_FREQ_MIN && mhz<=C2_FREQ_MAX;
 }
 static void tune_rx(unsigned mhz) {
+    static unsigned calibrated_mhz;
+    if (calibrated_mhz != mhz) {
+        rx_recalibrate(mhz);
+        calibrated_mhz = mhz;
+    }
     bool channel=(mhz>=2412 && mhz<=2472 && (mhz-2412)%5==0) || mhz==2484;
     /* Calibrate using a real Wi-Fi channel, then program exact PLL MHz.
      * The channel API otherwise rounds off-grid frequencies. This is an

@@ -19,6 +19,7 @@
 
 #include "burst_serial.h"
 #include "spectrum.h"
+#include "rx_recalibration.h"
 #include "rx_tuning.h"
 #include "rx_lo.h"
 #include "esp_rom_sys.h"
@@ -45,6 +46,11 @@ extern void rom_set_rxclk_en(unsigned);
 extern void set_chanfreq(unsigned,unsigned);
 extern void rom_set_rf_freq_offset(unsigned,unsigned,int);
 static void s2_tune(unsigned mhz) {
+    static unsigned calibrated_mhz;
+    if (calibrated_mhz != mhz) {
+        rx_recalibrate(mhz);
+        calibrated_mhz = mhz;
+    }
     rx_lo_plan_t plan=rx_lo_plan(mhz);
     rx_lo_select(false);
     bool channel=(mhz>=2412 && mhz<=2472 && (mhz-2412)%5==0)||mhz==2484;

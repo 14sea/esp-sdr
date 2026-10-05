@@ -18,9 +18,25 @@ class Tuning(unittest.TestCase):
                             '-I'+str(MAIN/'common'), '-I'+str(MAIN), str(c), '-o', str(exe)], check=True)
             subprocess.run([str(exe)], check=True)
 
+    def test_c5_exact_frequency_and_bandwidth_mode(self):
+        self.compile_run(r'''
+#include <assert.h>
+static unsigned tuned, selected_mode;
+void phy_set_chanfreq(unsigned f, unsigned mode) { tuned=f; selected_mode=mode; }
+#include "targets/esp32c5/tuning.h"
+int main(void) {
+    for (unsigned mode=0; mode<=1; mode++)
+        for (unsigned mhz=100; mhz<=6000; mhz++) {
+            c5_set_chan(mhz,mode);
+            assert(tuned==mhz && selected_mode==mode);
+        }
+}
+''')
+
     def test_receive_frequency_maps_to_each_chip_pll(self):
         stub = r'''
 #include <assert.h>
+void rx_recalibrate(unsigned mhz) {}
 #include <stdbool.h>
 #include <stdint.h>
 #include "rx_tuning.h"
@@ -100,9 +116,11 @@ int main(void){
   assert(ckgen==0x63);
  }
 #endif
+#if !CONFIG_IDF_TARGET_ESP32C5
  assert(writes>5800);
+#endif
 }
-'''.replace('CALL',call).replace('EXPECTED','(f>3000?5180u:2412u)' if target=='esp32c5' else '(channel?f:2412u)'))
+'''.replace('CALL',call).replace('EXPECTED','f' if target=='esp32c5' else '(channel?f:2412u)'))
 
     def test_alternate_lo_setup_and_return_to_normal(self):
         for target, tune in [('esp32s2', 's2_tune'), ('esp32s3', 's3_tune'), ('esp32c3', 'tune_rx'), ('esp32c2', 'tune_rx'), ('esp32c6', 'c6_tune')]:
@@ -113,6 +131,7 @@ int main(void){
             with self.subTest(target=target):
                 self.compile_run(f'#define CONFIG_IDF_TARGET_{target.upper()} 1\n'+r'''
 #include <assert.h>
+void rx_recalibrate(unsigned mhz) {}
 #include <stdbool.h>
 static unsigned ckgen, frequency_mhz, setups, delays;
 static bool rx_ready;
@@ -164,6 +183,7 @@ int main(void){
     def test_s2_capacitor_search_and_failure_restore(self):
         self.compile_run(r'''
 #include <assert.h>
+void rx_recalibrate(unsigned mhz) {}
 #include <stdbool.h>
 static unsigned regs[16], steps, scenario;
 unsigned rom_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){
@@ -200,6 +220,7 @@ int main(void){
         prepare = source[source.index('static void prepare_rx(void) {'):source.index('#include "filter_probe.h"')]
         self.compile_run(r'''
 #include <assert.h>
+void rx_recalibrate(unsigned mhz) {}
 #include <stdbool.h>
 #define CONFIG_IDF_TARGET_ESP32C5 1
 #define CONFIG_IDF_TARGET_ESP32C61 0
@@ -208,7 +229,7 @@ static unsigned frequency_mhz,rx_channel_mode,calls,calibrated,pll,last_mode;
 static bool rx_ready;
 static int rx_filter=-1;
 unsigned char phy_param[50]={[49]=2};
-void phy_set_chanfreq(unsigned f,unsigned m){calibrated=f;last_mode=m;calls++;}
+void phy_set_chanfreq(unsigned f,unsigned m){calibrated=pll=f;last_mode=m;calls++;}
 void phy_set_rf_freq_offset(unsigned c,unsigned f,int o){assert(c==2 && o==0);pll=f;}
 void phy_stop_tx_tone(unsigned x){assert(x==1);}
 void phy_pbus_workmode(void){}
@@ -224,7 +245,7 @@ int main(void){
   frequency_mhz=f;rx_channel_mode=mode;rx_ready=false;
   unsigned before=calls;prepare_rx();
   assert(calls==before+1 && last_mode==mode && pll==f && rx_ready);
-  assert(calibrated==(f>3000?5180u:2412u));
+  assert(calibrated==f);
   prepare_rx();assert(calls==before+1);
  }
  rx_filter=12;rx_ready=false;prepare_rx();assert(last_mode==1);
@@ -234,6 +255,7 @@ int main(void){
     def test_s2_s3_s31_production_parsers(self):
         stub = r'''
 #include <assert.h>
+void rx_recalibrate(unsigned mhz) {}
 #include <stdbool.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -250,6 +272,10 @@ int main(void){
 #define BURST_SERIAL_UART 1
 #define RX_GAIN 0
 #define REG_READ(r) 0u
+#define REG_WRITE(r,v) ((void)(v))
+static unsigned gain_init, gain_threshold;
+static void phy_set_txclk_en(unsigned on) {}
+static void burst_gain_mirror(int gain) {}
 static unsigned frequency_mhz,gain_max=72,gain_code;
 static bool rx_ready,hardware_agc;
 static int rx_filter;

@@ -122,7 +122,7 @@ Control operations:
 
 ```json
 {"op":"status"}
-{"op":"configure","frequency":2442000000,"rate":16000000,"gain":40,"bandwidth":0}
+{"op":"configure","frequency":2442000000,"rate":16000000,"gain":40,"agc":0,"bandwidth":0}
 {"op":"start","port":50000}
 {"op":"stop"}
 ```
@@ -158,9 +158,19 @@ calibrated RF timestamp. Lower acquisition rates use direct subsampling, not
 filtered decimation. The 13 MHz minimum analog bandwidth cannot prevent
 aliasing at the lower rates. Wider host output formats do not add ADC precision.
 
+## Hardware AGC and frequency calibration
+
+`agc` selects manual gain (0, the default) or hardware AGC (1) over USB or
+Ethernet. `gain` retains the manual index for switching back. Update both the
+firmware and SoapyESPSDR for Gqrx's hardware AGC checkbox to work; older
+firmware is reported as not supporting AGC.
+
+Each frequency change performs fresh receive DC and loopback I/Q calibration
+at the selected frequency before starting the next acquisition epoch.
+
 ## Analog DC correction and automatic bandwidth
 
-`dc_correction` is 1 after boot. Before starting an acquisition epoch,
+`dc_correction` is 1 after boot. In manual gain mode, before starting an acquisition epoch,
 `dc.c` measures raw I/Q while PARLIO is running. Each measurement allows
 50 ms for sampling-clock/receiver settling, then averages at least 16,384
 complex samples. Short measurements immediately after enabling capture
@@ -172,6 +182,8 @@ identical unused gain entry, keeping forced gain enabled. This follows the
 hardware latching approach in `sensor-firmware`: receiver state transitions
 can reload the corrected codes without freezing all PBUS receiver controls.
 RF/baseband gain, RF DC and native I/Q calibration fields are preserved.
+This additional single-gain DC adjustment is skipped during hardware AGC;
+the fresh PHY calibration supplies the corrections for all gain steps.
 The original PHY table entries are restored when reconfiguring reception.
 The register mapping is corroborated by `phy_set_rx_gain_cal_dc_new` in the
 pinned S31 PHY library. A measured 2×2 response matrix handles polarity and

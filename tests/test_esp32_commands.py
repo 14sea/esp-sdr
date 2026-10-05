@@ -12,6 +12,7 @@ class ESP32Commands(unittest.TestCase):
         handler=source[source.index('extern void set_chanfreq('):source.index('void app_main(')]
         stub=r'''
 #include <assert.h>
+void rx_recalibrate(unsigned mhz) {}
 #include <stdbool.h>
 #include <inttypes.h>
 #include <stdio.h>

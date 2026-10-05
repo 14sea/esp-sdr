@@ -344,7 +344,16 @@ static void command(const char *line) {
         hardware_agc = false; gain_code = n; apply_gain(); reply("OK\n");
     } else if (sscanf(line, "FREQ %u %c", &n, &extra) == 1 && rx_frequency_valid(n)) {
         frequency_mhz=n;
+        phy_set_txclk_en(1);
+        burst_gain_mirror(-1);
+        phy_set_txclk_en(0);
+        REG_WRITE(0x20107094, gain_init);
+        REG_WRITE(0x2010713c, gain_threshold);
         s31_tune(n);
+        gain_init = REG_READ(0x20107094);
+        gain_threshold = REG_READ(0x2010713c);
+        gain_max = (REG_READ(RX_GAIN) >> 8) & 127;
+        if (gain_code > gain_max) gain_code = gain_max;
         prepare_rx(); apply_gain(); reply("OK\n");
     } else if (sscanf(line, "CAP16 %u %u %c", &n, &rate, &extra) == 2) capture_rate(n, rate, 8);
     else if (sscanf(line, "CAP20 %u %u %c", &n, &rate, &extra) == 2) capture_rate(n, rate, 10);

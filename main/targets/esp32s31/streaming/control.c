@@ -47,6 +47,7 @@ static cJSON *status(void) {
     cJSON_AddNumberToObject(r, "dc_j10", receiver_dc_jacobian[2]);
     cJSON_AddNumberToObject(r, "dc_j11", receiver_dc_jacobian[3]);
     cJSON_AddNumberToObject(r, "gain", receiver_config.gain);
+    cJSON_AddNumberToObject(r, "agc", receiver_config.agc);
     cJSON_AddNumberToObject(r, "gain_max", receiver_gain_max);
     cJSON_AddNumberToObject(r, "bandwidth", receiver_config.bandwidth);
     cJSON_AddNumberToObject(r, "effective_bandwidth", receiver_bandwidth(&receiver_config));
@@ -100,6 +101,7 @@ cJSON *control_request(const cJSON *request, stream_owner_t caller, const char *
         r = error("Unknown operation");
     else if (!number(request, "frequency", &cfg.frequency_hz, 2150000000u, 2800000000u, 1000000) ||
              !number(request, "dc_correction", &cfg.dc_correction, 0, 1, 1) ||
+             !number(request, "agc", &cfg.agc, 0, 1, 1) ||
              !number(request, "gain", &cfg.gain, 0, receiver_gain_max, 1) ||
              !number(request, "rate", &cfg.rate, 1000000, 40000000, 1) ||
              !number(request, "bandwidth", &cfg.bandwidth, 0, 54000000, 1000000) ||

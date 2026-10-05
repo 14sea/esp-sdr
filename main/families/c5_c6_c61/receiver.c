@@ -30,6 +30,7 @@
 #include "ring_capture.h"
 #endif
 #include "rx_tuning.h"
+#include "rx_recalibration.h"
 extern void phy_stop_tx_tone(unsigned);
 extern void phy_pbus_workmode(void);
 extern void phy_pbus_xpd_rx_on(unsigned);
@@ -75,6 +76,7 @@ static void reply(const char *s) { (void)send_bytes(s,strlen(s)); }
 #include "burst_limits.h"
 
 static void prepare_rx(void) {
+    static unsigned calibrated_mhz;
     if(rx_ready)return;
 #if CONFIG_IDF_TARGET_ESP32C61
     burst_gain_mirror(-1);
@@ -84,6 +86,10 @@ static void prepare_rx(void) {
         gain_defaults_saved=false;
     }
 #endif
+    if (calibrated_mhz != frequency_mhz) {
+        rx_recalibrate(frequency_mhz);
+        calibrated_mhz = frequency_mhz;
+    }
 #if CONFIG_IDF_TARGET_ESP32C5
     phy_chip_set_chan(frequency_mhz,rx_channel_mode);
 #else

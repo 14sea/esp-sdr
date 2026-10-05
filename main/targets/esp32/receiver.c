@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "burst_serial.h"
 #include "spectrum.h"
+#include "rx_recalibration.h"
 #include "rx_tuning.h"
 #include "rx_lo.h"
 #include "rx_bandwidth.h"
@@ -167,6 +168,11 @@ extern void set_chanfreq(unsigned mhz, unsigned mode);
 extern void rom_set_rf_freq_offset(unsigned crystal, unsigned mhz, int offset);
 
 static void tune_rx(unsigned mhz) {
+    static unsigned calibrated_mhz;
+    if (calibrated_mhz != mhz) {
+        rx_recalibrate(mhz);
+        calibrated_mhz = mhz;
+    }
     rx_lo_plan_t plan=rx_lo_plan(mhz);
     rx_lo_select(false);
     bool channel = (mhz >= 2412 && mhz <= 2472 && (mhz-2412)%5 == 0) || mhz == 2484;

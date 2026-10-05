@@ -55,7 +55,7 @@ void receiver_transport_lost(stream_owner_t owner) {
 }
 stream_packet_t *stream_ring;
 uint32_t stream_head, stream_tail, stream_epoch, stream_owner;
-receiver_config_t receiver_config = {2412000000u, 16000000u, 40, 0, 1};
+receiver_config_t receiver_config = {2412000000u, 16000000u, 40, 0, 1, 0};
 unsigned receiver_gain_max;
 typedef struct {
     receiver_config_t config;
@@ -94,7 +94,17 @@ static void prepare_rx(void) {
     phy_pbus_xpd_rx_on(1);
     phy_set_rxclk_en(1);
 }
+static unsigned gain_init_default, gain_threshold_default;
+static bool gain_defaults_saved;
 static void radio_configure(const receiver_config_t *c) {
+    /* Remove manual overrides before the PHY configures the new channel. */
+    phy_set_txclk_en(1);
+    burst_gain_mirror(-1);
+    phy_set_txclk_en(0);
+    if (gain_defaults_saved) {
+        REG_WRITE(0x20107094, gain_init_default);
+        REG_WRITE(0x2010713c, gain_threshold_default);
+    }
     s31_tune(c->frequency_hz / 1000000u);
     phy_loopback_mode_en(0);
     phy_bb_bss_cbw40_dig(0);
@@ -105,14 +115,19 @@ static void radio_configure(const receiver_config_t *c) {
     *(volatile unsigned *)(phy_param + 164) &= ~0x200u;
     phy_set_rx_gain_table(c->frequency_hz / 1000000u, 0);
     receiver_gain_max = (REG_READ(0x2010702c) >> 8) & 127;
+    gain_init_default = REG_READ(0x20107094);
+    gain_threshold_default = REG_READ(0x2010713c);
+    gain_defaults_saved = true;
     phy_set_txclk_en(1);
-    burst_gain_mirror(c->gain);
+    burst_gain_mirror(c->agc ? -1 : (int)c->gain);
     phy_set_txclk_en(0);
     prepare_rx();
-    phy_rfrx_sat_rst(0);
-    REG_WRITE(0x20107094, (REG_READ(0x20107094) & ~0x1fcu) | (c->gain << 2));
-    REG_WRITE(0x2010713c, (REG_READ(0x2010713c) & ~0x01fc0000u) | (c->gain << 18));
-    phy_force_rx_gain(1, c->gain);
+    phy_rfrx_sat_rst(c->agc ? 1 : 0);
+    if (!c->agc) {
+        REG_WRITE(0x20107094, (gain_init_default & ~0x1fcu) | (c->gain << 2));
+        REG_WRITE(0x2010713c, (gain_threshold_default & ~0x01fc0000u) | (c->gain << 18));
+    }
+    phy_force_rx_gain(c->agc ? 0 : 1, c->agc ? 0 : c->gain);
     unsigned cap = rx_bandwidth_dcap(receiver_bandwidth(c) / 1000000u);
     for (unsigned j = 4; j <= 5; j++)
         phy_i2c_writeReg(0x67, 1, j, (phy_i2c_readReg(0x67, 1, j) & ~63u) | cap);
@@ -234,7 +249,7 @@ static void capture_loop(void *arg) {
             memset(receiver_dc_jacobian, 0, sizeof(receiver_dc_jacobian));
             memset(receiver_dc_before, 0, sizeof(receiver_dc_before));
             memset(receiver_dc_after, 0, sizeof(receiver_dc_after));
-            if (cmd.owner != STREAM_IDLE && cmd.config.dc_correction)
+            if (cmd.owner != STREAM_IDLE && cmd.config.dc_correction && !cmd.config.agc)
                 receiver_dc_calibrate(dc_measure);
             tail = 0;
             partial = 0;

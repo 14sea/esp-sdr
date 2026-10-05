@@ -25,7 +25,7 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(stream_packet_t) == 1376, "wire packet size");
 typedef enum { STREAM_IDLE, STREAM_ETHERNET, STREAM_USB } stream_owner_t;
 typedef struct {
-    uint32_t frequency_hz, rate, gain, bandwidth, dc_correction;
+    uint32_t frequency_hz, rate, gain, bandwidth, dc_correction, agc;
 } receiver_config_t;
 /* Zero bandwidth follows the sample rate, limited by the analog filter. */
 static inline uint32_t receiver_bandwidth(const receiver_config_t *config) {

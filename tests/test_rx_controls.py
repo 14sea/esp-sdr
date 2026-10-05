@@ -18,6 +18,7 @@ class RxControls(unittest.TestCase):
     def test_bandwidth_curves_and_interpolation(self):
         source=r'''
 #include <assert.h>
+void rx_recalibrate(unsigned mhz) {}
 #include "rx_bandwidth.h"
 int main(void) {
  assert(rx_bandwidth_dcap(0)==0);
@@ -88,6 +89,7 @@ int main(void) {
     def test_c61_mirror_and_agc_restore(self):
         self.compile_run(r'''
 #include <assert.h>
+void rx_recalibrate(unsigned mhz) {}
 #include <stdint.h>
 static uint32_t hardware[160][3];
 void __real_phy_write_gain_mem(uint32_t a,uint32_t b,uint32_t c,uint32_t index) {
@@ -114,6 +116,7 @@ int main(void) {
         functions=source[source.index('static int rx_filter'):source.index('extern void rom_pbus_workmode')]
         self.compile_run(r'''
 #include <assert.h>
+void rx_recalibrate(unsigned mhz) {}
 static unsigned values[2]={0xd0,0xd2},writes;
 unsigned rom_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){
  assert(b==0x67 && h==1 && (r==1 || r==2));return values[r-1];
@@ -141,6 +144,7 @@ int main(void){
         functions=source[source.index('static int rx_filter'):source.index('static unsigned frequency_mhz')]
         self.compile_run(r'''
 #include <assert.h>
+void rx_recalibrate(unsigned mhz) {}
 static unsigned values[2]={0xe3,0xa4},writes;
 unsigned rom1_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){
  assert(b==0x67 && h==1 && (r==4 || r==5));return values[r-4];
@@ -166,6 +170,7 @@ int main(void){
         functions=source[source.index('static int rx_filter'):source.index('static unsigned frequency_mhz')]
         self.compile_run(r'''
 #include <assert.h>
+void rx_recalibrate(unsigned mhz) {}
 static unsigned values[2]={0xe3,0xa4},writes;
 unsigned rom_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){
  assert(b==0x67 && h==1 && (r==4 || r==5));return values[r-4];
@@ -190,6 +195,7 @@ int main(void){
         source=(ROOT/'main/targets/esp32h2/receiver.c').read_text()
         functions=source[source.index('extern unsigned chip_i2c_readReg'):source.index('static size_t packed_size')]
         self.compile_run(r'''#include <assert.h>
+void rx_recalibrate(unsigned mhz) {}
 static unsigned value=0xad,writes;
 unsigned chip_i2c_readReg(unsigned b,unsigned h,unsigned r){assert(b==0x67 && h==1 && r==0);return value;}
 void chip_i2c_writeReg(unsigned b,unsigned h,unsigned r,unsigned v){assert(b==0x67 && h==1 && r==0);value=v;writes++;}
