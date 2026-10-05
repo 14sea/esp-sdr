@@ -1,16 +1,23 @@
 /* Scalar FFT processing for cores without the S3 SIMD kernel. A completed
  * block is copied out of RF SRAM immediately, then processed in short slices
- * across as many bank rotations as necessary. Each frame describes exactly
- * that block; skipped RF time is visible in the sample indices. */
+ * across as many bank rotations as necessary. Completed FFT powers accumulate
+ * until output is available; skipped work remains visible in sample indices. */
 #include "spectrum_math.h"
-enum {SCALAR_IDLE,SCALAR_FFT,SCALAR_BINS,SCALAR_COPY,SCALAR_FRAME,SCALAR_PHASES};
+enum {SCALAR_IDLE,SCALAR_FFT,SCALAR_BINS,SCALAR_COPY,SCALAR_FRAME,SCALAR_ENCODE,SCALAR_PHASES};
 static struct {
     unsigned phase, half, groups, group, offset, emit, bank, first;
-    uint64_t index;
+    uint64_t index, frame_index;
+    unsigned merged, frame_pairs;
+    float mean_scale;
     uint8_t gain;
     uint32_t cost[SCALAR_PHASES]; /* longest warm slice of each phase */
 } scalar;
 
+static void scalar_flush(void) {
+    if(!scalar.merged)return;
+    scalar.mean_scale=1.0f/scalar.merged;
+    scalar.emit=0;scalar.phase=SCALAR_ENCODE;
+}
 static void scalar_accept(unsigned bank, unsigned first, uint64_t index) {
     if(scalar.phase){st.res->abandoned++;return;}
     scalar.index=index;scalar.gain=bank_ptr(bank)[first]>>20;
@@ -54,21 +61,39 @@ static bool scalar_work(void) {
         for(unsigned k=scalar.emit;k<end;k++) {
             int32_t re=fft_buf[2*k],im=fft_buf[2*k+1];
             uint32_t power=spectrum_complex_power(re,im);
-            frame_out[sizeof(spec_header_t)+bin_of[k]]=spectrum_power_code(power);
+            if(st.cfg->max_hold){
+                uint32_t *maximum=(uint32_t *)accum;
+                if(power>maximum[k])maximum[k]=power;
+            }else accum[k]+=(float)power;
+        }
+        scalar.emit=end;
+        if(end==spec_n){
+            if(!scalar.merged)scalar.frame_index=scalar.index;
+            scalar.frame_pairs=(unsigned)(scalar.index+spec_n-scalar.frame_index);
+            scalar.merged++;st.res->ffts++;scalar.phase=SCALAR_IDLE;
+            if(txq_head==txq_tail || scalar.merged==65535)scalar_flush();
+        }
+    } else if(scalar.phase==SCALAR_ENCODE) {
+        unsigned end=scalar.emit+32<spec_n?scalar.emit+32:spec_n;
+        for(unsigned k=scalar.emit;k<end;k++){
+            frame_out[sizeof(spec_header_t)+bin_of[k]]=st.cfg->max_hold?
+                spectrum_power_code(((uint32_t *)accum)[k]):
+                spectrum_mean_power_code(accum[k]*scalar.mean_scale);
+            accum[k]=0;
         }
         scalar.emit=end;
         if(end==spec_n)scalar.phase=SCALAR_FRAME;
     } else {
         ring_result_t *r=st.res;
-        spec_header_t h={.magic=SPEC_MAGIC,.frame=r->frames+r->drops,.pair_index=scalar.index,.pairs=spec_n,
-            .ffts=1,.flags=(st.cfg->max_hold?1:0)|(st.dropped?4:0)|2,.gain=scalar.gain,
+        spec_header_t h={.magic=SPEC_MAGIC,.frame=r->frames+r->drops,.pair_index=scalar.frame_index,.pairs=scalar.frame_pairs,
+            .ffts=scalar.merged,.flags=(st.cfg->max_hold?1:0)|(st.dropped?4:0)|2,.gain=scalar.gain,
             .drops=r->drops>65535?65535:r->drops,.nfft_log2=spec_log2,.db_step=2};
         memcpy(frame_out,&h,sizeof(h));
         unsigned len=sizeof(h)+spec_n;
         uint32_t crc=esp_rom_crc32_le(0,frame_out,len);memcpy(frame_out+len,&crc,4);
         if(txq_push(frame_out,len+4)){r->frames++;st.last_ok=esp_timer_get_time();st.dropped=false;}
         else{r->drops++;st.dropped=true;}
-        r->ffts++;scalar.phase=SCALAR_IDLE;
+        scalar.merged=0;scalar.phase=SCALAR_IDLE;
     }
     uint32_t cycles=esp_cpu_get_cycle_count()-start;
     scalar_telemetry(cycles,scalar.phase==SCALAR_IDLE);

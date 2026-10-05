@@ -28,7 +28,9 @@ typedef struct __attribute__((packed)) {
  uint16_t ffts;uint8_t flags,gain;uint16_t drops;uint8_t nfft_log2,db_step;
 } spec_header_t;
 static struct {unsigned abandoned,frames,drops,ffts,work_max;} result;
-static struct {bool max_hold;} config;
+static struct {bool max_hold;unsigned units_per_frame;} config={.units_per_frame=1};
+static float accum[2048];
+static unsigned txq_head,txq_tail;
 static struct {typeof(result)*res;typeof(config)*cfg;struct{bool pending;}work[3];bool dropped;uint64_t last_ok;}st={.res=&result,.cfg=&config};
 typedef typeof(result) ring_result_t;
 static uint32_t bank[2048];
@@ -44,6 +46,9 @@ static unsigned esp_rom_crc32_le(unsigned c,const void*p,unsigned n){return 0;}
 static bool txq_push(const void*p,unsigned n){return true;}
 #define scalar_telemetry(cycles,complete) ((void)0)
 #include "ring_scalar.h"
+#include "spectrum_fft.h"
+static unsigned polls;
+static void poll(void *ctx){assert(ctx==&polls);polls++;}
 static unsigned rev(unsigned x,unsigned bits){unsigned r=0;while(bits--){r=r*2+(x&1);x>>=1;}return r;}
 int main(void){
  for(unsigned j=0;j<1024;j++){
@@ -65,6 +70,32 @@ int main(void){
   assert(abs((int)frame_out[28+peak]-(int)lrint(20*log10(12000.0*12000)))<=1);
   for(unsigned j=0;j<256;j++)if(j!=peak)assert(frame_out[28+j]+80<frame_out[28+peak]);
  }
+
+ /* Two completed FFTs merge in linear power, including max-hold and a
+  * final partial frame. No per-bin encoding occurs before the deadline. */
+ for(unsigned maximum=0;maximum<2;maximum++){
+  memset(&scalar,0,sizeof(scalar));memset(accum,0,sizeof(accum));
+  memset(&result,0,sizeof(result));config.units_per_frame=2;config.max_hold=maximum;
+  for(unsigned pass=0;pass<2;pass++){
+   for(unsigned j=0;j<256;j++){fft_buf[2*j]=pass?20:10;fft_buf[2*j+1]=0;}
+   txq_head=pass?0:1;
+   scalar.phase=SCALAR_BINS;scalar.emit=0;scalar.index=pass*24576;
+   while(scalar_work()){}
+   assert(result.frames==pass);
+  }
+  spec_header_t *h=(void *)frame_out;
+  assert(h->ffts==2 && h->pair_index==0 && h->pairs==24832);
+  assert(result.ffts==2 && !scalar.merged);
+  assert(frame_out[28]==(maximum?spectrum_power_code(400):spectrum_mean_power_code(250)));
+  for(unsigned j=0;j<256;j++)assert(accum[j]==0);
+  txq_head=1;
+  scalar.phase=SCALAR_BINS;scalar.emit=0;scalar.index=50000;
+  while(scalar_work()){}
+  assert(result.frames==1 && scalar.merged==1);
+  scalar_flush();while(scalar_work()){}
+  assert(result.frames==2 && ((spec_header_t *)frame_out)->ffts==1);
+ }
+ txq_head=txq_tail=0;config.units_per_frame=1;config.max_hold=false;
 
  /* The live bank is released only after the entire window is private. */
  for(unsigned j=0;j<256;j++)bank[j]=j;
@@ -98,6 +129,9 @@ int main(void){
      reference[2*b+1]=(int16_t)((ai*32767-ti+32767)>>16);
     }
    }
+   int16_t sliced[4096];memcpy(sliced,fft_buf,2*spec_n*sizeof(*fft_buf));polls=0;
+   spectrum_fft_poll(sliced,spec_n,coefficients,poll,&polls);
+   assert(polls && !memcmp(sliced,reference,2*spec_n*sizeof(*fft_buf)));
    memset(&scalar,0,sizeof(scalar));scalar.phase=1;scalar.half=spec_n/2;scalar.groups=1;
    while(scalar.phase==1)scalar_work();
    assert(!memcmp(fft_buf,reference,2*spec_n*sizeof(*fft_buf)));

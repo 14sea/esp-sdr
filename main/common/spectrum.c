@@ -4,6 +4,7 @@
 #include "spectrum.h"
 #include "spectrum_dc.h"
 #include "spectrum_math.h"
+#include "spectrum_fft.h"
 #include "spectrum_stats.h"
 #include "esp_cpu.h"
 #include "burst_serial.h"
@@ -89,6 +90,36 @@ static void capabilities(void) {
     send_text("]}\n");
 }
 
+typedef struct {size_t pending,sent;uint32_t *frames;int64_t progress;} spectrum_output_t;
+static void pump_spectrum(void *context) {
+    spectrum_output_t *out=context;
+    if(!out->pending)return;
+    size_t written=burst_serial_try_send(frame+out->sent,out->pending-out->sent);
+    out->sent+=written;
+    if(written)out->progress=esp_timer_get_time();
+    if(out->sent==out->pending){out->pending=out->sent=0;(*out->frames)++;}
+}
+
+/* Encoding consumes the completed batch; transmission owns frame[] while
+ * the next batch accumulates independently in powers. */
+static size_t pack_spectrum(unsigned n,unsigned log2n,unsigned det,unsigned merged,
+                            unsigned frames,uint64_t index,uint8_t gain) {
+    memcpy(frame,"SPC1",4);put32(4,frames);put64(8,index);put32(16,n*merged);
+    put16(20,merged);frame[22]=8|(det?1:0);frame[23]=gain;put16(24,0);
+    frame[26]=log2n;frame[27]=2;
+    const float mean_scale=1.0f/merged;
+    for(unsigned j=0,bin=0;j<n;j++) {
+        frame[HEADER_BYTES+bin]=det?spectrum_power_code(powers.maximum[j]):
+            spectrum_mean_power_code(powers.mean[j]*mean_scale);
+        unsigned bit=n>>1;
+        while(bin&bit){bin^=bit;bit>>=1;}
+        bin^=bit;
+    }
+    put32(HEADER_BYTES+n,esp_rom_crc32_le(0,frame,HEADER_BYTES+n));
+    memset(&powers,0,n*sizeof(float));
+    return HEADER_BYTES+n+4;
+}
+
 bool spectrum_command(const char *line, unsigned frequency_mhz, spectrum_acquire_fn acquire) {
     unsigned dc_mode;char dc_extra;
     if(!strcmp(line,"DC?")){char text[16];snprintf(text,sizeof(text),"DC %u\n",spectrum_dc_mode);send_text(text);return true;}
@@ -107,7 +138,6 @@ bool spectrum_command(const char *line, unsigned frequency_mhz, spectrum_acquire
         for(unsigned j=0;j<n;j++) window[j]=(int16_t)lrintf(16383.5f*(1-cosf(2*M_PI*j/n)));
         setup_n=n;
     }
-    const float mean_scale=1.0f/units;
     unsigned log2n=0;while((1u<<log2n)<n)log2n++;
     char text[192];
     snprintf(text,sizeof(text),"SPEC %u %u %u %u\n",n,rate_hz(rate),n,frequency_mhz);
@@ -116,58 +146,50 @@ bool spectrum_command(const char *line, unsigned frequency_mhz, spectrum_acquire
     uint32_t frames=0,ffts=0,status=0;uint64_t pairs=0;
     bool stopped=false;
     spectrum_dc_t dc={0};spectrum_stats_t telemetry;spectrum_stats_init(&telemetry);
+    unsigned merged=0;uint8_t gain=0;uint64_t index=0;
+    spectrum_output_t out={.frames=&frames,.progress=start};
+    memset(&powers,0,n*sizeof(float));
     do {
         if(burst_serial_stop_requested()) {stopped=true;break;}
-        memset(&powers,0,n*sizeof(float));
-        uint64_t index=(uint64_t)(esp_timer_get_time()-start)*rate_hz(rate)/1000000u;
-        uint8_t gain=0;
         uint32_t busy_start=esp_cpu_get_cycle_count();
-        for(unsigned u=0;u<units;u++) {
-            const uint32_t *words; unsigned elapsed;
-            if(!acquire(n,rate,&words,&elapsed)) {status=1;break;}
-            if(!u) gain=words[0]>>20;
-            for(unsigned j=0;j<n;j++) {
-                int32_t i=((int32_t)(words[j]<<22)>>22), q=((int32_t)(words[j]<<12)>>22);
-                fft_data[2*j]=clamp16((i*window[j])>>9);
-                fft_data[2*j+1]=clamp16((q*window[j])>>9);
-            }
-            /* The ANSI kernel rounds correctly on all architectures. */
-            dsps_fft2r_sc16_ansi(fft_data,n);
-            spectrum_dc_apply(&dc,fft_data,n);
-            /* Keep FFT order while accumulating: reorder once per frame.
-             * Calculate Q15 power in integers, converting once for the mean
-             * detector instead of using software floating-point products. */
-            if(det) {
-                for(unsigned j=0;j<n;j++) {
-                    uint32_t p=spectrum_complex_power(fft_data[2*j],fft_data[2*j+1]);
-                    if(p>powers.maximum[j])powers.maximum[j]=p;
-                }
-            } else {
-                for(unsigned j=0;j<n;j++)
-                    powers.mean[j]+=(float)spectrum_complex_power(fft_data[2*j],fft_data[2*j+1]);
-            }
-            ffts++;pairs+=n;
+        if(!merged)index=(uint64_t)(esp_timer_get_time()-start)*rate_hz(rate)/1000000u;
+        const uint32_t *words;unsigned elapsed;
+        if(!acquire(n,rate,&words,&elapsed)){status=1;break;}
+        if(!merged)gain=words[0]>>20;
+        for(unsigned j=0;j<n;j++){
+            int32_t i=((int32_t)(words[j]<<22)>>22),q=((int32_t)(words[j]<<12)>>22);
+            fft_data[2*j]=clamp16((i*window[j])>>9);
+            fft_data[2*j+1]=clamp16((q*window[j])>>9);
         }
-        if(status) break;
-        memcpy(frame,"SPC1",4);put32(4,frames);put64(8,index);put32(16,n*units);
-        put16(20,units);frame[22]=8|(det?1:0);frame[23]=gain;put16(24,0);
-        frame[26]=log2n;frame[27]=2;
-        for(unsigned j=0,bin=0;j<n;j++) {
-            frame[HEADER_BYTES+bin]=det?spectrum_power_code(powers.maximum[j]):
-                spectrum_mean_power_code(powers.mean[j]*mean_scale);
-            /* Increment a bit-reversed index: about two bit flips per bin,
-             * instead of reversing all log2(n) bits for every output. */
-            unsigned bit=n>>1;
-            while(bin&bit){bin^=bit;bit>>=1;}
-            bin^=bit;
+        spectrum_fft_poll(fft_data,n,dsps_fft_w_table_sc16,pump_spectrum,&out);
+        spectrum_dc_apply(&dc,fft_data,n);
+        for(unsigned j=0;j<n;j++){
+            uint32_t p=spectrum_complex_power(fft_data[2*j],fft_data[2*j+1]);
+            if(det){if(p>powers.maximum[j])powers.maximum[j]=p;}
+            else powers.mean[j]+=(float)p;
         }
-        put32(HEADER_BYTES+n,esp_rom_crc32_le(0,frame,HEADER_BYTES+n));
+        ffts++;pairs+=n;merged++;
+        pump_spectrum(&out);
+        if(out.pending && esp_timer_get_time()-out.progress>3000000){status=7;break;}
+        if(!out.pending){
+            if(stats)spectrum_stats_emit(&telemetry,n,rate_hz(rate),ffts,0,0,0,0,burst_serial_send);
+            out.pending=pack_spectrum(n,log2n,det,merged,frames,index,gain);merged=0;
+            out.progress=esp_timer_get_time();pump_spectrum(&out);
+        }
         telemetry.busy+=(uint32_t)(esp_cpu_get_cycle_count()-busy_start);
-        if(!burst_serial_send(frame,HEADER_BYTES+n+4)) {status=7;break;}
-        frames++;
-        if(stats)spectrum_stats_emit(&telemetry,n,rate_hz(rate),ffts,0,0,0,0,burst_serial_send);
-        if(esp_timer_get_time()-yield_at>=20000) {vTaskDelay(1);yield_at=esp_timer_get_time();}
-    } while(!ms || esp_timer_get_time()-start<(int64_t)ms*1000);
+        if(merged==65535)break; /* bound the wire FFT count if the host stalls */
+        if(esp_timer_get_time()-yield_at>=20000){vTaskDelay(1);yield_at=esp_timer_get_time();}
+    }while(!ms || esp_timer_get_time()-start<(int64_t)ms*1000);
+    /* Drain in order; a partial final batch never contains an earlier frame. */
+    if(out.pending){
+        if(burst_serial_send(frame+out.sent,out.pending-out.sent))frames++;
+        else status=7;
+    }
+    if(!status && merged){
+        size_t size=pack_spectrum(n,log2n,det,merged,frames,index,gain);
+        if(burst_serial_send(frame,size))frames++;
+        else status=7;
+    }
     snprintf(text,sizeof(text),"SPECEND %u 0 %u %"PRIu64" %"PRIi64" 0 0 %u 0 0 %u %u\n",
              (unsigned)status,(unsigned)ffts,pairs,esp_timer_get_time()-start,(unsigned)frames,(unsigned)ffts,stopped);
     send_text(text);return true;

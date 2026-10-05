@@ -623,9 +623,8 @@ RING_HOT static void unit_done(void) {
 #if CONFIG_IDF_TARGET_ESP32S3
     sx.pairs_done += w->count;
 #endif
-    /* close only with at least one FFT (or after 4x upf units without one) */
-    if (++st.frame_units >= st.cfg->units_per_frame && st.phase == BLK_IDLE &&
-        (st.frame_ffts || st.frame_units >= 4u * st.cfg->units_per_frame))
+    /* Emit a fresh batch as soon as the previous output has drained. */
+    if (++st.frame_units && st.phase == BLK_IDLE && st.frame_ffts && txq_head==txq_tail)
         frame_close();
 }
 
@@ -896,7 +895,7 @@ RING_HOT static bool work_slice(void) {
             st.phase = BLK_IDLE;
             st.frame_ffts++;
             st.res->ffts++;
-            if (st.frame_units >= st.cfg->units_per_frame) frame_close();
+            if (st.frame_ffts && txq_head==txq_tail) frame_close();
         }
     } else if (st.phase == BLK_UNPACK) {
         unsigned end = st.pos + UNPACK_CHUNK < spec_n ? st.pos + UNPACK_CHUNK : spec_n;
@@ -1189,7 +1188,7 @@ IRAM_ATTR static void c1_unit(const c1_unit_t *u) {
     }
     st.frame_pairs += u->count;
     sx.pairs_done += u->count;
-    if (++st.frame_units >= st.cfg->units_per_frame && (st.frame_ffts || st.frame_units >= 4u * st.cfg->units_per_frame))
+    if (++st.frame_units && st.frame_ffts && !c1enc.pending && txq_head==txq_tail)
         c1_emit_frame();
     ld.c1_busy += esp_cpu_get_cycle_count() - tu;
 }
@@ -1370,6 +1369,10 @@ RING_HOT void ring_capture_run(const ring_config_t *cfg, ring_result_t *r) {
         fail(r, RING_FAIL_ARG, 0);
         return;
     }
+    /* SPEC always attempts every available block; obsolete stride/batch
+     * arguments remain accepted for existing clients. Deadlines retire work. */
+    ring_config_t automatic=*cfg;
+    if(spec){automatic.stride=1;cfg=&automatic;st.cfg=cfg;}
     if (spec) spec_setup(cfg->nfft);
     dc = (spectrum_dc_t){0};
 #if !CONFIG_IDF_TARGET_ESP32S3
@@ -1404,6 +1407,7 @@ RING_HOT void ring_capture_run(const ring_config_t *cfg, ring_result_t *r) {
             scalar_stats.at-=250000;
             scalar_accept(0,0,0);
             while(scalar_work()){}
+            scalar_flush();while(scalar_work()){}
         }
         portCLEAR_INTERRUPT_MASK_FROM_ISR(warm_irq);
         unsigned warm_max=r->work_max;
@@ -1729,6 +1733,7 @@ RING_HOT void ring_capture_run(const ring_config_t *cfg, ring_result_t *r) {
 #if !CONFIG_IDF_TARGET_ESP32S3
     if (spec) {
         while(scalar_work())txq_pump();
+        scalar_flush();while(scalar_work())txq_pump();
 #else
     if (dual) {
         MEMW();

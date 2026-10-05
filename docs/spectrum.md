@@ -25,13 +25,18 @@ S3 spectra require native USB.
 Unsupported controls stay hidden. Existing S3 firmware without `SPECCAPS`
 uses the original S3 compatibility profiles.
 
+`SPEC` always processes as many FFTs as its capture and transport allow.
+Completed powers accumulate while the previous frame is being transmitted;
+once output is available, it emits and clears that batch. There is no fixed
+frame timer, rolling history, or host request. The legacy stride and batch
+arguments remain in the command for compatibility, but no longer limit SPEC
+processing. Mean versus max-hold remains selectable.
+
 Send `SPEC <milliseconds> <stride> <units_per_frame> <detector> <rate_code>
 <fft_bins> [stats]`. When `CAPS` includes `SPECSTAT`, append `1` to receive
 statistics alongside spectra (omitting it preserves the original protocol). Zero milliseconds runs until a stop byte; detector 0 means mean
 power and 1 means maximum power. Use the parameters from the chosen profile.
-Portable snapshots require stride 1. C6/C61 continuous frames contain one
-FFT, so their two detector settings give the same individual-frame result;
-the viewer still averages or maximizes successive frames for display.
+Portable snapshots require stride 1. Incomplete FFTs are excluded from batches.
 
 The start reply is `SPEC <fft_bins> <sample_rate_hz> <unit_pairs> <MHz>`.
 Binary frames follow. All integers are little-endian:
