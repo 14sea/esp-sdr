@@ -39,7 +39,6 @@ static int burst_serial_port(void) { return 1; }
 static unsigned burst_serial_baud(void) { return 2000000; }
 #define spectrum_acquire NULL
 static bool spectrum_command(const char *s,unsigned f,void *acquire){return false;}
-static bool ring_test(const char *s){return false;}
 static void reply(const char *s) { snprintf(response,sizeof(response),"%s",s); }
 static bool gain_command(const char *s) { return false; }
 static unsigned gain_max(void) { return 79; }

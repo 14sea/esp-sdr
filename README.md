@@ -98,7 +98,7 @@ transport before offering this mode.
 | --- | --- | --- |
 | ESP32 | — | 256–2048 bins; 16/40/80 MS/s; UART |
 | ESP32-C2 | — | 256–2048 bins; 80/40/16 MS/s; UART |
-| ESP32-C3 | 256 bins; 80 MS/s; native USB | 512–2048 bins over USB; 256–2048 over UART |
+| ESP32-C3 | — | 256–2048 bins; 80 MS/s; USB or UART |
 | ESP32-C5 | — | 256–2048 bins; 4/8/10/20/40/80 MS/s |
 | ESP32-C6 | 256 bins; 80 MS/s; native USB | 512–2048 bins over USB; 256–2048 over UART |
 | ESP32-H2 | — | 256–2048 bins; 6.4/10.667/16/32 MS/s; USB or UART |
@@ -115,7 +115,7 @@ available separately.
 
 The original S3 Turbo Mode was developed by Zoltan Doczi from
 [Z2Labs](https://www.z2labs.io/). The shared implementation extends it with
-C6/C61 bank rotation, C3 live-bank reads, S31 dual-core SIMD processing with
+C6/C61 bank rotation, S31 dual-core SIMD processing with
 continuous bank rotation, and portable snapshot FFTs.
 See [spectrum protocol and hardware validation](docs/spectrum.md) for the
 wire format, limitations and test results. The S3 ring diagnostic host tool

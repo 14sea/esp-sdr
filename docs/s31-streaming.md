@@ -166,11 +166,16 @@ aliasing at the lower rates. Wider host output formats do not add ADC precision.
 complex samples. Short measurements immediately after enabling capture
 produced misleading DAC-response estimates on the bench S31.
 
-The calibration snapshots both PBUS banks of receiver blocks 0–3 before
-switching to manual PBUS control. It preserves RF/baseband gain controls,
-then adjusts only the two baseband DC DACs (blocks 2/3, bank 2). The register
-mapping is corroborated by `phy_set_rx_gain_cal_dc_new` in the pinned S31 PHY
-library. A measured 2×2 response matrix handles polarity and cross-coupling.
+The calibration adjusts only the two baseband DC DACs (blocks 2/3, bank 2).
+It stores their codes in both modem gain tables and latches them through an
+identical unused gain entry, keeping forced gain enabled. This follows the
+hardware latching approach in `sensor-firmware`: receiver state transitions
+can reload the corrected codes without freezing all PBUS receiver controls.
+RF/baseband gain, RF DC and native I/Q calibration fields are preserved.
+The original PHY table entries are restored when reconfiguring reception.
+The register mapping is corroborated by `phy_set_rx_gain_cal_dc_new` in the
+pinned S31 PHY library. A measured 2×2 response matrix handles polarity and
+cross-coupling.
 Corrections are bounded to 32 codes per trial and 96 codes from the initial
 point, with at most five iterations and three backtracking trials each.
 Failed/poorly conditioned measurements restore the initial DAC codes;

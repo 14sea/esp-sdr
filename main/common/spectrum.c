@@ -27,13 +27,15 @@
 #endif
 static int16_t fft_data[2 * MAX_FFT] __attribute__((aligned(16))) SPEC_STORAGE;
 static int16_t window[MAX_FFT] SPEC_STORAGE;
-static float powers[MAX_FFT] SPEC_STORAGE;
+/* Same workspace size for both detectors. Max-hold never needs floats;
+ * mean accumulation retains fractional precision without extra SRAM. */
+static union {float mean[MAX_FFT];uint32_t maximum[MAX_FFT];} powers SPEC_STORAGE;
 static uint8_t frame[HEADER_BYTES + MAX_FFT + 4] SPEC_STORAGE;
 static unsigned setup_n;
 static bool ready;
 spectrum_workspace_t spectrum_workspace(void) {
     setup_n=0;
-    return (spectrum_workspace_t){fft_data,window,powers,frame};
+    return (spectrum_workspace_t){fft_data,window,powers.mean,frame};
 }
 
 static int16_t twiddles[MAX_FFT] __attribute__((aligned(16))) SPEC_STORAGE;
@@ -60,9 +62,6 @@ static bool send_text(const char *s) { return burst_serial_send(s, strlen(s)); }
 static void put16(unsigned at, uint16_t v) { frame[at]=v; frame[at+1]=v>>8; }
 static void put32(unsigned at, uint32_t v) { put16(at,v); put16(at+2,v>>16); }
 static void put64(unsigned at, uint64_t v) { put32(at,v); put32(at+4,v>>32); }
-static unsigned reverse(unsigned x, unsigned bits) {
-    unsigned r=0; while(bits--) {r=(r<<1)|(x&1); x>>=1;} return r;
-}
 static int16_t clamp16(int32_t v) {return v>32767?32767:v< -32768?-32768:v;}
 
 static void capabilities(void) {
@@ -78,7 +77,7 @@ static void capabilities(void) {
         for(unsigned n=256;n<=MAX_FFT;n*=2) {
             char text[96];
             snprintf(text,sizeof(text),"%s[%u,%u,%u,1,1,%u]",first?"":",",rates[r],r,n,
-#if CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C3
+#if CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
                      n==256 && burst_serial_port()!=BURST_SERIAL_UART
 #else
                      0u
@@ -108,6 +107,7 @@ bool spectrum_command(const char *line, unsigned frequency_mhz, spectrum_acquire
         for(unsigned j=0;j<n;j++) window[j]=(int16_t)lrintf(16383.5f*(1-cosf(2*M_PI*j/n)));
         setup_n=n;
     }
+    const float mean_scale=1.0f/units;
     unsigned log2n=0;while((1u<<log2n)<n)log2n++;
     char text[192];
     snprintf(text,sizeof(text),"SPEC %u %u %u %u\n",n,rate_hz(rate),n,frequency_mhz);
@@ -118,7 +118,7 @@ bool spectrum_command(const char *line, unsigned frequency_mhz, spectrum_acquire
     spectrum_dc_t dc={0};spectrum_stats_t telemetry;spectrum_stats_init(&telemetry);
     do {
         if(burst_serial_stop_requested()) {stopped=true;break;}
-        memset(powers,0,n*sizeof(*powers));
+        memset(&powers,0,n*sizeof(float));
         uint64_t index=(uint64_t)(esp_timer_get_time()-start)*rate_hz(rate)/1000000u;
         uint8_t gain=0;
         uint32_t busy_start=esp_cpu_get_cycle_count();
@@ -134,11 +134,17 @@ bool spectrum_command(const char *line, unsigned frequency_mhz, spectrum_acquire
             /* The ANSI kernel rounds correctly on all architectures. */
             dsps_fft2r_sc16_ansi(fft_data,n);
             spectrum_dc_apply(&dc,fft_data,n);
-            for(unsigned j=0;j<n;j++) {
-                float re=fft_data[2*j],im=fft_data[2*j+1],p=re*re+im*im;
-                /* Keep FFT order while accumulating: reorder once per frame,
-                 * rather than once for every transform in that frame. */
-                powers[j]=det?fmaxf(powers[j],p):powers[j]+p;
+            /* Keep FFT order while accumulating: reorder once per frame.
+             * Calculate Q15 power in integers, converting once for the mean
+             * detector instead of using software floating-point products. */
+            if(det) {
+                for(unsigned j=0;j<n;j++) {
+                    uint32_t p=spectrum_complex_power(fft_data[2*j],fft_data[2*j+1]);
+                    if(p>powers.maximum[j])powers.maximum[j]=p;
+                }
+            } else {
+                for(unsigned j=0;j<n;j++)
+                    powers.mean[j]+=(float)spectrum_complex_power(fft_data[2*j],fft_data[2*j+1]);
             }
             ffts++;pairs+=n;
         }
@@ -146,9 +152,14 @@ bool spectrum_command(const char *line, unsigned frequency_mhz, spectrum_acquire
         memcpy(frame,"SPC1",4);put32(4,frames);put64(8,index);put32(16,n*units);
         put16(20,units);frame[22]=8|(det?1:0);frame[23]=gain;put16(24,0);
         frame[26]=log2n;frame[27]=2;
-        for(unsigned j=0;j<n;j++) {
-            float p=det?powers[j]:powers[j]/units;
-            frame[HEADER_BYTES+reverse(j,log2n)]=spectrum_mean_power_code(p);
+        for(unsigned j=0,bin=0;j<n;j++) {
+            frame[HEADER_BYTES+bin]=det?spectrum_power_code(powers.maximum[j]):
+                spectrum_mean_power_code(powers.mean[j]*mean_scale);
+            /* Increment a bit-reversed index: about two bit flips per bin,
+             * instead of reversing all log2(n) bits for every output. */
+            unsigned bit=n>>1;
+            while(bin&bit){bin^=bit;bit>>=1;}
+            bin^=bit;
         }
         put32(HEADER_BYTES+n,esp_rom_crc32_le(0,frame,HEADER_BYTES+n));
         telemetry.busy+=(uint32_t)(esp_cpu_get_cycle_count()-busy_start);

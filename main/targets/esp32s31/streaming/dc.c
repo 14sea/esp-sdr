@@ -1,11 +1,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "stream.h"
+#include "burst_gain_table.h"
+#include "soc/soc.h"
 #include <math.h>
 #include <string.h>
-extern void phy_pbus_debugmode(void);
 extern void phy_pbus_force_test(unsigned, unsigned, unsigned);
-extern unsigned phy_pbus_rd(unsigned, unsigned);
 
 /* Calibrate before publishing a new epoch. The diagnostic bus carries
  * I[9:2],Q[9:2]. Measure both DAC-to-I/Q response vectors on each setup;
@@ -15,10 +15,17 @@ float receiver_dc_before[2], receiver_dc_after[2], receiver_dc_jacobian[4];
 unsigned receiver_dc_steps;
 static int clamp_code(int value) { return value < 0 ? 0 : value > 511 ? 511 : value; }
 static void dc_apply(int i, int q) {
-    /* Apply the live baseband DAC pair without disturbing forced RF gain.
-     * The S31 PHY's own calibration uses blocks 2/3, bank 2. */
+    /* Store the DAC codes where the front end reloads them. PBUS-only writes
+     * can be overwritten by gain/state transitions during reception. */
+    if(!burst_gain_dc_set(receiver_config.gain, i, q))return;
     phy_pbus_force_test(2, 2, i);
     phy_pbus_force_test(3, 2, q);
+    /* Like sensor-firmware: latch an identical shadow entry, then the real
+     * entry, keeping forced gain enabled throughout. Never freeze all PBUS
+     * receiver controls just to hold the two DC DACs. */
+    unsigned reg=REG_READ(0x2010702cu)&0x00ffffffu;
+    REG_WRITE(0x2010702cu,reg|(79u<<24));
+    REG_WRITE(0x2010702cu,reg|(receiver_config.gain<<24));
     vTaskDelay(pdMS_TO_TICKS(10));
 }
 static float dc_cost(const float m[2]) { return m[0] * m[0] + m[1] * m[1]; }
@@ -27,22 +34,14 @@ void receiver_dc_calibrate(bool (*dc_measure)(float mean[2])) {
     memset(receiver_dc_jacobian, 0, sizeof(receiver_dc_jacobian));
     memset(receiver_dc_before, 0, sizeof(receiver_dc_before));
     memset(receiver_dc_after, 0, sizeof(receiver_dc_after));
+    unsigned codes[2];
+    if(receiver_gain_max>=79 || !burst_gain_dc_codes(receiver_config.gain,codes))return;
     if (!dc_measure(receiver_dc_before))
         return;
     memcpy(receiver_dc_after, receiver_dc_before, sizeof(receiver_dc_after));
     if (dc_cost(receiver_dc_before) < .25f)
         return;
-    unsigned live[4][2];
-    for (unsigned block = 0; block < 4; block++)
-        for (unsigned bank = 1; bank <= 2; bank++)
-            live[block][bank - 1] = phy_pbus_rd(block, bank);
-    int base[2] = {live[2][1], live[3][1]};
-    /* Preserve the live RF/baseband state while taking ownership of PBUS.
-     * Workmode continuously reasserts the table's DAC values. */
-    phy_pbus_debugmode();
-    for (unsigned block = 0; block < 4; block++)
-        for (unsigned bank = 1; bank <= 2; bank++)
-            phy_pbus_force_test(block, bank, live[block][bank - 1]);
+    int base[2] = {codes[0], codes[1]};
     int best[2] = {base[0], base[1]};
     float best_cost = dc_cost(receiver_dc_before);
     /* Identify the complete 2x2 response. PBUS and gain-RAM field names

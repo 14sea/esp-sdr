@@ -19,10 +19,10 @@ class SpectrumMath(unittest.TestCase):
 #include <stdlib.h>
 #define SPEC_MAGIC 0x31435053u
 static unsigned spec_n=256, spec_log2=8;
-static int16_t fft_buf[512], coefficients[1024];
+static int16_t fft_buf[4096], coefficients[2048];
 static int16_t *dsps_fft_w_table_sc16=coefficients;
-static uint16_t bin_of[256];
-static uint8_t frame_out[288];
+static uint16_t bin_of[2048];
+static uint8_t frame_out[2080];
 typedef struct __attribute__((packed)) {
  uint32_t magic,frame;uint64_t pair_index;uint32_t pairs;
  uint16_t ffts;uint8_t flags,gain;uint16_t drops;uint8_t nfft_log2,db_step;
@@ -31,11 +31,14 @@ static struct {unsigned abandoned,frames,drops,ffts,work_max;} result;
 static struct {bool max_hold;} config;
 static struct {typeof(result)*res;typeof(config)*cfg;struct{bool pending;}work[3];bool dropped;uint64_t last_ok;}st={.res=&result,.cfg=&config};
 typedef typeof(result) ring_result_t;
-static uint32_t bank[256];
+static uint32_t bank[2048];
 static const uint32_t *bank_ptr(unsigned b){return bank;}
-static void spec_unpack(const uint32_t*p,unsigned f,unsigned a,unsigned b){}
+static unsigned copied;
+static void spec_unpack(const uint32_t*p,unsigned f,unsigned a,unsigned b){
+ for(unsigned j=a;j<b;j++){fft_buf[2*j]=(int16_t)p[(f+j)%256];fft_buf[2*j+1]=0;copied++;}
+}
 static void spec_remove_dc(void){}
-static unsigned esp_cpu_get_cycle_count(void){return 0;}
+static unsigned esp_cpu_get_cycle_count(void){static unsigned ticks;return ++ticks;}
 static unsigned esp_timer_get_time(void){return 0;}
 static unsigned esp_rom_crc32_le(unsigned c,const void*p,unsigned n){return 0;}
 static bool txq_push(const void*p,unsigned n){return true;}
@@ -43,10 +46,10 @@ static bool txq_push(const void*p,unsigned n){return true;}
 #include "ring_scalar.h"
 static unsigned rev(unsigned x,unsigned bits){unsigned r=0;while(bits--){r=r*2+(x&1);x>>=1;}return r;}
 int main(void){
- for(unsigned j=0;j<512;j++){
-  unsigned k=rev(j,9);
-  coefficients[2*j]=(int16_t)(32767*cos(2*M_PI*k/1024));
-  coefficients[2*j+1]=(int16_t)(32767*sin(2*M_PI*k/1024));
+ for(unsigned j=0;j<1024;j++){
+  unsigned k=rev(j,10);
+  coefficients[2*j]=(int16_t)(32767*cos(2*M_PI*k/2048));
+  coefficients[2*j+1]=(int16_t)(32767*sin(2*M_PI*k/2048));
  }
  for(unsigned j=0;j<256;j++)bin_of[j]=rev(j,8);
  const int tones[]={1,17,63,-23,-120};
@@ -62,6 +65,44 @@ int main(void){
   assert(abs((int)frame_out[28+peak]-(int)lrint(20*log10(12000.0*12000)))<=1);
   for(unsigned j=0;j<256;j++)if(j!=peak)assert(frame_out[28+j]+80<frame_out[28+peak]);
  }
+
+ /* The live bank is released only after the entire window is private. */
+ for(unsigned j=0;j<256;j++)bank[j]=j;
+ memset(&scalar,0,sizeof(scalar));copied=0;
+ scalar_accept(0,240,1234);assert(st.work[0].pending);
+ scalar_work();assert(copied==256&&!st.work[0].pending&&scalar.phase==1);
+ assert(scalar.cost[3]>0);
+ for(unsigned j=0;j<256;j++)assert(fft_buf[2*j]==(j+240)%256);
+ memset(bank,0,sizeof(bank)); /* reclaiming RF SRAM cannot alter the copy */
+ for(unsigned j=0;j<256;j++)assert(fft_buf[2*j]==(j+240)%256);
+
+ /* Compare every FFT output against the previous wide-arithmetic kernel,
+  * including full-scale inputs that overflow signed 32-bit sums. */
+ uint32_t rng=0x12345678u;
+ int16_t reference[4096];
+ for(spec_n=256;spec_n<=2048;spec_n*=2){
+  for(unsigned trial=0;trial<66;trial++){
+   for(unsigned j=0;j<2*spec_n;j++){
+    rng=rng*1664525u+1013904223u;
+    fft_buf[j]=reference[j]=trial==0?INT16_MIN:trial==1?INT16_MAX:(int16_t)(rng>>16);
+   }
+   for(unsigned half=spec_n/2,groups=1;half;half/=2,groups*=2){
+    for(unsigned group=0;group<groups;group++)for(unsigned offset=0;offset<half;offset++){
+     unsigned a=group*half*2+offset,b=a+half;
+     int64_t wr=coefficients[2*group],wi=coefficients[2*group+1];
+     int64_t ar=reference[2*a],ai=reference[2*a+1],br=reference[2*b],bi=reference[2*b+1];
+     int64_t tr=wr*br+wi*bi,ti=wr*bi-wi*br;
+     reference[2*a]=(int16_t)((ar*32767+tr+32767)>>16);
+     reference[2*a+1]=(int16_t)((ai*32767+ti+32767)>>16);
+     reference[2*b]=(int16_t)((ar*32767-tr+32767)>>16);
+     reference[2*b+1]=(int16_t)((ai*32767-ti+32767)>>16);
+    }
+   }
+   memset(&scalar,0,sizeof(scalar));scalar.phase=1;scalar.half=spec_n/2;scalar.groups=1;
+   while(scalar.phase==1)scalar_work();
+   assert(!memcmp(fft_buf,reference,2*spec_n*sizeof(*fft_buf)));
+  }
+ }
  assert(spectrum_power_code(0)==0);
  for(uint64_t p=1;p<=UINT32_MAX;p=p*103/100+1){
   int expected=(int)lrint(20*log10((double)p));if(expected>255)expected=255;
@@ -75,13 +116,19 @@ int main(void){
  }
  assert(spectrum_mean_power_code(0)==0);
  assert(spectrum_mean_power_code(INFINITY)==255);
+ assert(spectrum_mean_power_code(-INFINITY)==0);
+ assert(spectrum_mean_power_code(NAN)==0);
+ assert(spectrum_mean_power_code(-1)==0);
+ assert(spectrum_mean_power_code(0.99f)==0);
+ assert(spectrum_complex_power(INT16_MIN,INT16_MIN)==2147483648u);
+ assert(spectrum_complex_power(INT16_MAX,INT16_MAX)==2147352578u);
  return 0;
 }
 '''
         with tempfile.TemporaryDirectory() as tmp:
             src=Path(tmp)/'numeric.c';src.write_text(source)
             exe=Path(tmp)/'numeric'
-            subprocess.run(['cc','-std=gnu11','-O2','-I'+str(ROOT/'main/common'),str(src),'-lm','-o',str(exe)],check=True)
+            subprocess.run(['cc','-std=gnu11','-O2','-fsanitize=undefined','-fno-sanitize-recover=all','-I'+str(ROOT/'main/common'),str(src),'-lm','-o',str(exe)],check=True)
             subprocess.run([str(exe)],check=True)
 
     @unittest.skipUnless(shutil.which('cc'), 'Host C compiler unavailable')

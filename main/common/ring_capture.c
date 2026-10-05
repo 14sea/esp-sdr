@@ -1,5 +1,5 @@
 /*
- * Continuous RF capture: S3/C6/C61 bank rotation and C3 live-bank reads.
+ * Continuous RF capture: S3/C6/C61 bank rotation.
  *
  * The ADC dump engine writes IQ pairs at a ring index that advances
  * continuously (mod 16384) into whichever of the SRAM banks is selected.
@@ -22,8 +22,7 @@
  * Bank-rotation targets keep interrupts disabled for the run: no FreeRTOS tick, no Wi-Fi
  * ISR, no driver. Output goes straight into the USB Serial/JTAG FIFO from a
  * RAM queue; a full queue drops whole frames (counted, never blocks).
- * Those targets require CONFIG_ESP_INT_WDT=n. C3 masks interrupts only
- * for copying one FFT window, and yields during processing.
+ * These targets require CONFIG_ESP_INT_WDT=n.
  */
 #include "ring_capture.h"
 #include "spectrum.h"
@@ -83,15 +82,7 @@ int s3_fft2r_sc16_rnd_stage(int16_t *data, int N, int16_t *w, unsigned stage);
 #define MAX_PAIRS (THRESHOLD + LATE_LIMIT + 64u)
 #define NOT_FOUND 0xffffffffu
 
-#if CONFIG_IDF_TARGET_ESP32C3
-#define DUMP_CTRL_REG 0x60033d5cu
-#define DUMP_WRITE_INDEX_REG 0x60033d60u
-#define DUMP_CONFIG_REG 0x60033d90u
-#define DUMP_BANK_SELECT_REG 0x600c1020u
-#define DUMP_CTRL_RUN 0x80000000u
-#define DUMP_CTRL_CIRCULAR 0x00024000u
-#define DUMP_CONFIG_IQ 0x000c2040u
-#elif !CONFIG_IDF_TARGET_ESP32S3
+#if !CONFIG_IDF_TARGET_ESP32S3
 #define DUMP_CTRL_REG 0x600a9004u
 #define DUMP_WRITE_INDEX_REG 0x600a9008u
 #if CONFIG_IDF_TARGET_ESP32C6
@@ -189,6 +180,17 @@ RING_HOT static void fill_sentinels(unsigned b, unsigned at, unsigned count) {
                              : [p] "+a"(p)
                              : [v] "a"(value), [n] "a"(vectors)
                              : "memory");
+        }
+#else
+        /* Bank preparation writes thousands of words per rotation. Group
+         * scalar stores so loop bookkeeping does not dominate the RF budget.
+         * Keep vectors in four-word units for the common tail below. */
+        unsigned groups=(n-head)/8;
+        vectors=groups*2;
+        while(groups--) {
+            p[0]=SENTINEL;p[1]=SENTINEL;p[2]=SENTINEL;p[3]=SENTINEL;
+            p[4]=SENTINEL;p[5]=SENTINEL;p[6]=SENTINEL;p[7]=SENTINEL;
+            p+=8;
         }
 #endif
         for (unsigned i = head + vectors * 4; i < n; i++) *p++ = SENTINEL;
@@ -526,6 +528,7 @@ static void scalar_telemetry(unsigned cycles,bool complete) {
                             st.res->abandoned,st.res->drops,st.res->late_max,
                             (txq_head-txq_tail)*1000u/TXQ_SIZE,txq_push);
 }
+_Static_assert(RING_SPEC_NFFT_MAX==256,"Revalidate scalar copy timing before increasing FFT size");
 #include "ring_scalar.h"
 #endif
 
@@ -866,7 +869,7 @@ RING_HOT static void release_bank(unsigned b) {
     if (iqs.pending && iqs.bank == b) iqs_abandon();
 #endif
 #if !CONFIG_IDF_TARGET_ESP32S3
-    if(scalar.phase==3 && scalar.bank==b){scalar.phase=0;st.res->abandoned++;}
+    if(scalar.phase==SCALAR_COPY && scalar.bank==b){scalar.phase=0;st.res->abandoned++;}
     st.work[b].pending=false;
 #endif
     (void)b;
@@ -1316,53 +1319,6 @@ RING_HOT static void fail(ring_result_t *r, ring_status_t code, uint32_t detail)
     }
 }
 
-#if CONFIG_IDF_TARGET_ESP32C3
-/* C3 exposes the live RF SRAM to the CPU. Copy a window safely behind the
- * writer; FFT work uses the copy and cannot be overwritten by RF. */
-static void live_ring_run(const ring_config_t *cfg, ring_result_t *r) {
-    uint32_t owner=REG_READ(DUMP_BANK_SELECT_REG);
-    REG_WRITE(DUMP_CTRL_REG,0);REG_WRITE(DUMP_CONFIG_REG,DUMP_CONFIG_IQ);
-    REG_WRITE(DUMP_BANK_SELECT_REG,(owner&~7u)|2u|8u);
-    REG_WRITE(DUMP_CTRL_REG,DUMP_CTRL_CIRCULAR|DUMP_CTRL_RUN);
-    unsigned previous=REG_READ(DUMP_WRITE_INDEX_REG)&RING_MASK;
-    uint64_t total=0;
-    int64_t start=esp_timer_get_time(),last_poll=start,last_yield=start;st.last_ok=start;
-    for(;;) {
-        /* Only the sample copy is critical. Interrupts and the scheduler run
-         * throughout the FFT, preserving both watchdog protections. */
-        unsigned irq=portSET_INTERRUPT_MASK_FROM_ISR();
-        int64_t now=esp_timer_get_time();
-        unsigned current=REG_READ(DUMP_WRITE_INDEX_REG)&RING_MASK;
-        uint64_t delta=(current-previous)&RING_MASK;
-        uint64_t estimated=(uint64_t)(now-last_poll)*80u;
-        if(estimated>delta+RING_PAIRS/2)delta+=((estimated-delta+RING_PAIRS/2)/RING_PAIRS)*RING_PAIRS;
-        total+=delta;previous=current;last_poll=now;
-        if(cfg->mode==RING_MODE_SPEC && !scalar.phase && total>spec_n+512) {
-            unsigned before=esp_cpu_get_cycle_count();
-            scalar_accept(0,(current-spec_n-512)&RING_MASK,total-spec_n-512);
-            while(scalar.phase==3)scalar_work();
-            unsigned copy_cycles=esp_cpu_get_cycle_count()-before;
-            if(copy_cycles>(RING_PAIRS-spec_n-512)*cycles_per_pair(0)){
-                scalar.phase=0;fail(r,RING_FAIL_AGE,copy_cycles);
-            }
-            r->units++;
-        }
-        portCLEAR_INTERRUPT_MASK_FROM_ISR(irq);
-        if(r->status || (cfg->duration_ms && now-start >= (int64_t)cfg->duration_ms*1000))break;
-        if(burst_serial_stop_requested()){r->stopped_by_host=true;break;}
-        if(!cfg->duration_ms && now-st.last_ok>2000000){r->stopped_by_host=true;break;}
-        scalar_work();txq_pump();
-        if(now-last_yield>=10000){vTaskDelay(1);last_yield=now;}
-    }
-    REG_WRITE(DUMP_CTRL_REG,0);REG_WRITE(DUMP_BANK_SELECT_REG,owner);
-    r->elapsed_us=esp_timer_get_time()-start;r->pairs=total;
-    while(scalar_work())txq_pump();
-    int64_t deadline=esp_timer_get_time()+500000;
-    while(txq_head!=txq_tail && esp_timer_get_time()<deadline){txq_pump();vTaskDelay(1);}
-}
-#endif
-
-
 /* Generic run-loop hooks for the S3 second core (no-ops elsewhere). */
 #if CONFIG_IDF_TARGET_ESP32S3
 #define LD_C0(dt) (ld.c0_busy += (dt))
@@ -1425,9 +1381,6 @@ RING_HOT void ring_capture_run(const ring_config_t *cfg, ring_result_t *r) {
     c1enc.pending = 0;
 #endif
 
-    #if CONFIG_IDF_TARGET_ESP32C3
-    live_ring_run(cfg,r);return;
-    #endif
     const unsigned cpp = cycles_per_pair(cfg->rate);
     const uint32_t max_age = (RING_PAIRS - 128u) * cpp;
     const uint32_t settle = 16u * cpp;
@@ -1438,6 +1391,30 @@ RING_HOT void ring_capture_run(const ring_config_t *cfg, ring_result_t *r) {
 
     for (unsigned b = 0; b < RING_BANKS; b++) fill_sentinels(b, 0, RING_PAIRS);
 
+#if !CONFIG_IDF_TARGET_ESP32S3
+    if(spec) {
+        /* Prime the scalar FFT, CRC and telemetry paths before RF starts.
+         * A cold-cache slice can otherwise miss the first bank deadline or
+         * inflate the work budget until no subsequent copy fits. Nothing
+         * from these sentinel-only transforms is sent to the host. */
+        unsigned warm_irq=portSET_INTERRUPT_MASK_FROM_ISR();
+        for(unsigned pass=0;pass<2;pass++) {
+            r->work_max=0;
+            memset(scalar.cost,0,sizeof(scalar.cost));
+            scalar_stats.at-=250000;
+            scalar_accept(0,0,0);
+            while(scalar_work()){}
+        }
+        portCLEAR_INTERRUPT_MASK_FROM_ISR(warm_irq);
+        unsigned warm_max=r->work_max;
+        memset(r,0,sizeof(*r));
+        r->work_max=warm_max+warm_max/4;
+        /* Keep the warm phase costs; scalar_work finished in idle state. */
+        memset(st.work,0,sizeof(st.work));
+        txq_head=txq_tail=0;
+        spectrum_stats_init(&scalar_stats);
+    }
+#endif
 #if CONFIG_IDF_TARGET_ESP32S3
     uint32_t assist_cost = 0;
     if (spec) { /* warm caches/tables; bank 2 holds sentinels only */
@@ -1640,7 +1617,16 @@ RING_HOT void ring_capture_run(const ring_config_t *cfg, ring_result_t *r) {
 #else
                 const unsigned minimum_slice=2000;
 #endif
+#if CONFIG_IDF_TARGET_ESP32S3
                 uint32_t slice_cycles = r->work_max > minimum_slice ? r->work_max : minimum_slice;
+#else
+                /* CRC/statistics are much slower than a butterfly slice.
+                 * Reserving their worst case for every FFT slice wastes RF
+                 * time and can prevent a bank copy from ever completing. */
+                uint32_t slice_cycles=scalar.cost[scalar.phase];
+                slice_cycles+=slice_cycles/4;
+                if(slice_cycles<minimum_slice)slice_cycles=minimum_slice;
+#endif
                 uint32_t slice_pairs = slice_cycles / cpp + 128u;
 #if CONFIG_IDF_TARGET_ESP32S3
                 if (written + slice_pairs + 1024u < THRESHOLD + LATE_LIMIT / 2) {

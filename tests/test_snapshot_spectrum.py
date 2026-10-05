@@ -25,7 +25,7 @@ class SnapshotSpectrum(unittest.TestCase):
 #include "burst_serial.h"
 #define ESP_OK 0
 unsigned spectrum_dc_mode;
-static unsigned transforms,frames,wanted_units,wanted_n,wanted_detector;
+static unsigned transforms,frames,wanted_units,wanted_n,wanted_detector,full_scale;
 static char replies[4096];
 static uint32_t words[2048];
 static uint32_t esp_cpu_get_cycle_count(void){return 0;}
@@ -33,7 +33,7 @@ static int64_t esp_timer_get_time(void){static int64_t t;return t+=1000;}
 static void vTaskDelay(unsigned ticks){}
 static unsigned dsps_fft2r_init_sc16(int16_t *table,unsigned n){return ESP_OK;}
 static void dsps_fft2r_sc16_ansi(int16_t *x,unsigned n){
-    for(unsigned j=0;j<n;j++){x[2*j]=(j%97+1)*(transforms+1);x[2*j+1]=0;}
+    for(unsigned j=0;j<n;j++){x[2*j]=full_scale?INT16_MIN:(j%97+1)*(transforms+1);x[2*j+1]=full_scale?INT16_MIN:0;}
     transforms++;
 }
 static uint32_t esp_rom_crc32_le(uint32_t c,const void *p,unsigned n){return 0;}
@@ -44,6 +44,7 @@ void spectrum_stats_emit(spectrum_stats_t *s,unsigned n,unsigned fs,uint32_t fft
  unsigned abandoned,uint32_t drops,uint32_t late,unsigned queue,bool (*send)(const void*,size_t)){}
 '''
         check = r'''
+static unsigned test_reverse(unsigned x,unsigned bits){unsigned r=0;while(bits--){r=r*2+(x&1);x>>=1;}return r;}
 static bool acquire(unsigned n,unsigned rate,const uint32_t **p,unsigned *us){*p=words;*us=1;return true;}
 bool burst_serial_send(const void *data,size_t size){
  const uint8_t *b=data;
@@ -59,12 +60,12 @@ bool burst_serial_send(const void *data,size_t size){
   if(j==wanted_n/2||j==wanted_n-1)continue; /* DC correction neighbors */
   double p=0;
   for(unsigned u=1;u<=wanted_units;u++){
-   double v=(j%97+1)*u;v*=v;
+   double v=(j%97+1)*u;v=full_scale?2147483648.0:v*v;
    p=wanted_detector?fmax(p,v):p+v;
   }
   if(!wanted_detector)p/=wanted_units;
   int expected=(int)lrint(20*log10(p));if(expected>255)expected=255;
-  assert(abs((int)b[28+reverse(j,b[26])]-expected)<=1);
+  assert(abs((int)b[28+test_reverse(j,b[26])]-expected)<=1);
  }
  return true;
 }
@@ -73,10 +74,14 @@ int main(void){
  assert(strstr(replies,"[80000000,0,2048,1,1,0]"));
 #if CONFIG_IDF_TARGET_ESP32C61
  assert(strstr(replies,"[4000000,5,2048,1,1,0]"));
+ assert(strstr(replies,"[80000000,0,256,1,1,1]"));
+#else
+ assert(strstr(replies,"[80000000,0,256,1,1,0]"));
 #endif
  replies[0]=0;
  assert(spectrum_command("SPEC 1 1 1 0 0 4096",2412,acquire));
  assert(!strcmp(replies,"ERR spec_args\n"));
+ for(full_scale=0;full_scale<=1;full_scale++)
  for(wanted_n=256;wanted_n<=2048;wanted_n*=2)
  for(wanted_units=1;wanted_units<=8;wanted_units++)
  for(wanted_detector=0;wanted_detector<=1;wanted_detector++){
