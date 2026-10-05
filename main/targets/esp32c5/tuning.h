@@ -15,8 +15,14 @@ static void c5_set_chan(unsigned mhz, unsigned mode) {
      * calibrate at the requested frequency instead. Requests from 3000 to
      * 5180 MHz keep 5180 MHz: down to about 4200 MHz that gives the same
      * result, and below it the PHY responds differently (other DC offset and
-     * noise floor), which is left unchanged here. */
-    unsigned calibration = mhz > 5180 ? mhz : mhz > 3000 ? 5180 : 2412;
+     * noise floor), which is left unchanged here.
+     *
+     * Between 5320 and 5410 MHz, the gap between the Wi-Fi sub-bands, the
+     * PHY answers a request with its upper-band values, which there leave
+     * a larger offset than 5320 MHz does and can start the cycle again.
+     * Use 5320 MHz for that range. */
+    unsigned calibration = mhz > 5320 && mhz < 5410 ? 5320
+                         : mhz > 5180 ? mhz : mhz > 3000 ? 5180 : 2412;
     phy_set_chanfreq(calibration, mode);
     phy_set_rf_freq_offset(phy_param[49], mhz, 0);
 }
