@@ -104,6 +104,10 @@ static void prepare_rx(void) {
     phy_pbus_xpd_tx_off();
     phy_pbus_xpd_rx_on(1);
     phy_set_rxclk_en(1);
+    /* PBUS work-mode setup releases forced RX gain. Restore the requested
+     * mode after it, including when starting an IQ capture or spectrum run. */
+    phy_rfrx_sat_rst(hardware_agc);
+    phy_force_rx_gain(!hardware_agc, hardware_agc ? 0 : gain_code);
 }
 
 /* No PHY/I2C, allocation, logging or scheduler calls inside the open gate.
