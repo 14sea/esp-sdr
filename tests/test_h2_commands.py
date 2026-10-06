@@ -18,6 +18,7 @@ class H2Commands(unittest.TestCase):
 void rx_recalibrate(unsigned mhz) {}
 #include "rx_tuning.h"
 #include <stdbool.h>
+static bool burst_version_command(const char *s) { return false; }
 static bool burst_gpio_command(const char *s) { return false; }
 #include <inttypes.h>
 #include <stdio.h>

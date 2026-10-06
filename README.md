@@ -133,6 +133,8 @@ request/response protocol: send newline-terminated ASCII commands and read
 text replies. Capture replies also include a binary I/Q payload.
 
 Query `INFO` and `CAPS` to identify the firmware and supported features.
+`VERSION?` reports the Git revision and UTC build date/time; see
+[firmware version reporting](docs/firmware-version.md).
 `LIMITS?` reports receive-control limits, `RANGE?` reports the tuning range,
 and `TRANSPORT?` identifies the active interface. Configure reception with
 `FREQ <MHz>`, `BANDWIDTH <MHz>` and `GAIN` commands.

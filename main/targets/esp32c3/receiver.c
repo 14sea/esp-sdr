@@ -17,6 +17,7 @@
 
 #include "burst_serial.h"
 #include "burst_gpio.h"
+#include "burst_version.h"
 #include "spectrum.h"
 #include "rx_recalibration.h"
 #include "rx_tuning.h"
@@ -169,6 +170,7 @@ static bool capture(unsigned n,unsigned divider,unsigned format) {
 }
 
 static void handle_command(char *line) {
+    if (burst_version_command(line)) return;
     if (burst_gpio_command(line)) return;
 #ifdef RING_PROBE
     if(ring_probe_command(line)) return;
@@ -197,7 +199,7 @@ static void handle_command(char *line) {
         if(ok)reply("END\n");
     }
     else if(!strcmp(line,"CAPS")) {
-        reply("CAPS GPIO SPEC SPECN SPECCAPS SPECSTAT DCT UARTBAUD RXLIMITS SERIALLEASE "
+        reply("CAPS VERSION GPIO SPEC SPECN SPECCAPS SPECSTAT DCT UARTBAUD RXLIMITS SERIALLEASE "
 #if CONFIG_ESP_SDR_UART_ENABLED
               "DUALSERIAL "
 #endif

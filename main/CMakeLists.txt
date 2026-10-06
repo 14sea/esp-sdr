@@ -17,7 +17,7 @@ if(IDF_TARGET STREQUAL "esp32s31")
     list(APPEND target_includes "${target_dir}")
 endif()
 set(receiver "${target_dir}/receiver.c")
-set(sources "common/burst_serial.c" "common/burst_gpio.c" "common/spectrum_stats.c" "common/rx_recalibration.c")
+set(sources "common/burst_serial.c" "common/burst_gpio.c" "common/burst_version.c" "common/spectrum_stats.c" "common/rx_recalibration.c")
 set(dependencies esp_driver_gpio esp_hw_support esp_phy esp_wifi nvs_flash esp_timer esp_driver_uart esp-dsp)
 option(RING_PROBE "Build bounded experimental ring diagnostics (never package)" OFF)
 if(IDF_TARGET STREQUAL "esp32c61" OR IDF_TARGET STREQUAL "esp32c6")
@@ -66,6 +66,18 @@ idf_component_register(SRCS "${receiver}" ${sources}
     LDFRAGMENTS ${fragments}
     PRIV_INCLUDE_DIRS "common" ${target_includes} "diagnostics"
     REQUIRES ${dependencies})
+
+# Regenerate at build time (not only CMake configure time). The embedded record
+# is also the artifact exporter's source of revision and UTC build time.
+idf_build_get_property(version_python PYTHON)
+set(version_header "${CMAKE_CURRENT_BINARY_DIR}/generated/build_version.h")
+add_custom_target(esp_sdr_build_version
+    COMMAND "${version_python}" "${PROJECT_DIR}/tools/generate_version.py"
+        --root "${PROJECT_DIR}" --profile "${IDF_TARGET}" --output "${version_header}"
+    BYPRODUCTS "${version_header}"
+    VERBATIM)
+add_dependencies(${COMPONENT_LIB} esp_sdr_build_version)
+target_include_directories(${COMPONENT_LIB} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 # Keep the linker guard beside the backend whose SRAM aperture it protects.
 target_link_options(${COMPONENT_LIB} INTERFACE
