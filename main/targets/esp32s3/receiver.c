@@ -19,6 +19,7 @@
 #include "soc/soc.h"
 
 #include "burst_serial.h"
+#include "burst_gpio.h"
 #include "rx_recalibration.h"
 #include "rx_tuning.h"
 #include "rx_lo.h"
@@ -314,6 +315,7 @@ static bool ring_command(const char *line) {
 }
 
 static void handle_command(char *line) {
+    if (burst_gpio_command(line)) return;
     if(!strcmp(line,"TRANSPORT?")) {
         char answer[64];
         snprintf(answer,sizeof(answer),"TRANSPORT %s %u\n",
@@ -348,7 +350,7 @@ static void handle_command(char *line) {
         else if(!strcmp(line,"ADCCLOCK?")){char h[64];snprintf(h,sizeof(h),"ADC %u\n",rom_chip_i2c_readReg(0x66,0,4));reply(h);}
 #endif
         else if(!strcmp(line,"CAPS")) {
-            reply("CAPS UARTBAUD RXLIMITS SERIALLEASE "
+            reply("CAPS GPIO UARTBAUD RXLIMITS SERIALLEASE "
 #if CONFIG_ESP_SDR_UART_ENABLED
                   "DUALSERIAL "
 #endif

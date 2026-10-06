@@ -289,6 +289,7 @@ static int burst_serial_port(void){return 1;}
 static unsigned burst_serial_baud(void){return 2000000;}
 static bool gain_command(const char *s){return false;}
 static bool ring_command(const char *s){return false;}
+static bool burst_gpio_command(const char *s){return false;}
 static bool limits_command(const char *s){return false;}
 static bool capture(unsigned n,unsigned d,unsigned f){return true;}
 static bool capture_rate(unsigned n,unsigned d,unsigned f){return true;}

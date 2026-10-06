@@ -121,6 +121,10 @@ See [spectrum protocol and hardware validation](docs/spectrum.md) for the
 wire format, limitations and test results. The S3 ring diagnostic host tool
 is [tools/s3_ring.py](tools/s3_ring.py).
 
+GPIO outputs can be controlled from the browser’s GPIO section or the serial
+protocol. Firmware reports available pins; each supports high impedance (Z),
+low (0), or high (1). See [GPIO controls](docs/rx-controls.md#gpio-outputs).
+
 ## Commands and transport
 
 Connect over native USB or a 3.3 V USB-to-UART adapter with crossed TX/RX

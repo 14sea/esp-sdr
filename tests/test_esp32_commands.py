@@ -14,6 +14,7 @@ class ESP32Commands(unittest.TestCase):
 #include <assert.h>
 void rx_recalibrate(unsigned mhz) {}
 #include <stdbool.h>
+static bool burst_gpio_command(const char *s) { return false; }
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdarg.h>

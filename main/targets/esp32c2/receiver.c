@@ -17,6 +17,7 @@
 #include "soc/soc.h"
 
 #include "burst_serial.h"
+#include "burst_gpio.h"
 #include "spectrum.h"
 #include "rx_recalibration.h"
 #include "rx_tuning.h"
@@ -188,6 +189,7 @@ static bool capture(unsigned n,unsigned divider,unsigned format) {
 }
 
 static void handle_command(char *line) {
+    if (burst_gpio_command(line)) return;
     if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
     if(!strcmp(line,"TRANSPORT?")) {
         char answer[64];
@@ -212,7 +214,7 @@ static void handle_command(char *line) {
         if(ok)reply("END\n");
     }
     else if(!strcmp(line,"CAPS")) {
-        reply("CAPS SPEC SPECN SPECCAPS SPECSTAT DCT UARTBAUD RXLIMITS SERIALLEASE "
+        reply("CAPS GPIO SPEC SPECN SPECCAPS SPECSTAT DCT UARTBAUD RXLIMITS SERIALLEASE "
               "TUNEEXT LPFANA RX40 RX16 GAIN HWAGC IQ8\n");
     }
     else if(sscanf(line,"BANDWIDTH %u %c",&n,&extra)==1 &&

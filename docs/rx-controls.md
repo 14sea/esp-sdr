@@ -140,3 +140,39 @@ S2 reserves 48 KiB at `0x3fff0000–0x3fffc000` and its IRAM aliases, leaving th
 top bank accessible to ROM USB. Its 12,284-sample maximum leaves four overrun
 canaries. Source 0 supplies signed 10-bit I/Q; clock bits 15/16 select nominal
 40/16 MS/s from the 80 MS/s source.
+
+## GPIO outputs
+
+Burst firmware advertises `GPIO` in `CAPS`. `GPIO?` returns a single line of
+available output pins and their configured states, ordered by chip GPIO number:
+
+```text
+GPIO 0:Z 1:Z 2:Z 3:0 4:Z 14:1
+```
+
+The example is illustrative; clients must use the returned list rather than
+infer pins from the chip name. An empty list is returned as `GPIO`.
+
+`GPIO <pin> <Z|0|1>` changes one pin and replies `OK GPIO <pin> <state>`.
+Invalid/unavailable pins, invalid states, and malformed requests return
+`ERR gpio_args`; a driver failure returns `ERR gpio_io`.
+
+- `Z`: high impedance, output and internal pull-up/pull-down disabled.
+- `0`: push-pull output low.
+- `1`: push-pull output high.
+
+All advertised pins are initialized to Z once at firmware startup. Queries and
+client connections do not change them. Settings survive retuning and client
+disconnection, but reset to Z on reboot; they are not saved to flash. Responses
+report the configured drive state, not the measured voltage at the pad.
+
+Availability excludes input-only/nonexistent GPIOs, dedicated flash/PSRAM and
+memory-supply pads (conservatively including optional memory), ESP-IDF-reserved
+pins, native USB pins, and both UART pins when the UART transport is enabled.
+Pin numbers are silicon GPIO numbers, not board connector labels. Firmware
+cannot discover board wiring or which pads a particular module exposes.
+
+GPIO commands obey the same serial ownership checks as receiver commands.
+Clients must finish a burst, or stop and drain a spectrum stream, before sending
+one. The browser provides a collapsed GPIO section at the bottom of the sidebar,
+with a Z/0/1 button group for each available pin, and handles this sequencing.
