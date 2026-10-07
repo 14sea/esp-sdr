@@ -79,7 +79,10 @@ static void reply(const char *s) { (void)send_bytes(s,strlen(s)); }
 
 static void prepare_rx(void) {
     static unsigned calibrated_mhz;
-    if(rx_ready)return;
+    if(rx_ready) {
+        if(!rx_recalibration_stale())return;
+        calibrated_mhz=0;
+    }
 #if CONFIG_IDF_TARGET_ESP32C61
     burst_gain_mirror(-1);
     if(gain_defaults_saved) {

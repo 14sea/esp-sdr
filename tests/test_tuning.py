@@ -133,6 +133,7 @@ int main(void){
 #include <assert.h>
 void rx_recalibrate(unsigned mhz) {}
 #include <stdbool.h>
+bool rx_recalibration_stale(void) { return false; }
 static unsigned ckgen, frequency_mhz, setups, delays;
 static bool rx_ready;
 enum {rx_prep=3, WIFI_SECOND_CHAN_NONE=0};
@@ -185,6 +186,7 @@ int main(void){
 #include <assert.h>
 void rx_recalibrate(unsigned mhz) {}
 #include <stdbool.h>
+bool rx_recalibration_stale(void) { return false; }
 static unsigned regs[16], steps, scenario;
 unsigned rom_chip_i2c_readReg(unsigned b,unsigned h,unsigned r){
  assert(b==0x62 && h==1 && r<16);
@@ -222,6 +224,7 @@ int main(void){
 #include <assert.h>
 void rx_recalibrate(unsigned mhz) {}
 #include <stdbool.h>
+bool rx_recalibration_stale(void) { return false; }
 #define CONFIG_IDF_TARGET_ESP32C5 1
 #define CONFIG_IDF_TARGET_ESP32C61 0
 #define CONFIG_IDF_TARGET_ESP32C6 0
@@ -257,6 +260,7 @@ int main(void){
 #include <assert.h>
 void rx_recalibrate(unsigned mhz) {}
 #include <stdbool.h>
+bool rx_recalibration_stale(void) { return false; }
 #include <stdint.h>
 #include <inttypes.h>
 #include <stdarg.h>

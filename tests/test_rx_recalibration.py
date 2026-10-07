@@ -139,6 +139,11 @@ int main(void) {
         /* Unrelated calibration bits must survive; only RX caches expire. */
         assert((*flags&~0x680u)==(0xffffffffu&~0x680u));
         reference_tune(2437); assert(tuned==2437);
+#if CONFIG_IDF_TARGET_ESP32C5
+        /* The PHY tracker stamps phy_param+1024 when it recalibrates. */
+        assert(!rx_recalibration_stale());
+        *(int16_t *)(phy_param+1024)+=1; assert(rx_recalibration_stale());
+#endif
     }
 }
 '''

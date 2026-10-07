@@ -2,6 +2,7 @@
 #include "rx_recalibration.h"
 #include <stdint.h>
 #include "soc/soc.h"
+#include <stdbool.h>
 
 /* These private ABIs and offsets belong to the PHY archives pinned in
  * firmware-targets.json. A table rebuild alone retains the previous DC
@@ -37,6 +38,14 @@ void __wrap_phy_chip_set_chan_ana(unsigned mhz) {
 extern void phy_set_rx_gain_cal_dc(unsigned, unsigned, void *, void *);
 extern void phy_adc_rate_cal_rxdc(void);
 extern void phy_set_rx_gain_table(unsigned, unsigned);
+/* The PHY's own temperature tracking (phy_cal_param_track, run from the PLL
+ * tracking timer) re-measures the DC tables at its reference channels when
+ * the temperature has drifted, which undoes the per-frequency measurement
+ * below. It records the temperature it calibrated at in phy_param + 1024. */
+static int16_t calibrated_temperature;
+bool rx_recalibration_stale(void) {
+    return *(int16_t *)(phy_param + 1024) != calibrated_temperature;
+}
 void rx_recalibrate(unsigned mhz) {
     measurement_mhz = mhz;
     release_manual_gain();
@@ -60,6 +69,7 @@ void rx_recalibrate(unsigned mhz) {
     }
     *flags |= 0x480u;
     phy_set_rx_gain_table(mhz, 0);
+    calibrated_temperature = *(int16_t *)(phy_param + 1024);
     measurement_mhz = 0;
 }
 #elif CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32S31
