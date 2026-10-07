@@ -67,12 +67,14 @@ attempt. Fractional MHz and values outside that software range are rejected.
 for accepting a tuning command.
 
 Out-of-channel requests calibrate on a standard channel before direct PLL
-programming. C5 calibrates at 2412 MHz for requests through 3000 MHz and at the
-nearest listed 20 MHz Wi-Fi channel centre above 3000 MHz (5180–5825 MHz).
-Ties select the lower channel. This reduces the DC offset and resulting AGC
-oscillation caused by using 5180 MHz throughout the upper band. Its direct path uses
-`phy_set_rf_freq_offset` with the calibrated crystal selector (`phy_param[49]`)
-to program the requested frequency after calibration.
+programming. C5 instead re-measures its receive DC offsets at the requested
+frequency on every retune and then programs that frequency directly through
+`phy_set_chanfreq`, which keeps the DC offset small and the hardware AGC stable
+across the whole range. The loopback I/Q coefficients installed by the PHY
+itself are kept, so a retune never drives the transmitter. Below 4001 MHz the
+PHY selects its 2.4 GHz gain table, whose maximum index differs from the 5 GHz
+table (77 or 80 against 83, depending on the chip revision); read the limit from
+`GAIN?` after tuning rather than assuming it.
 S31 likewise keeps arbitrary frequencies out of channel calibration.
 
 ### Experimental lower-band LO conversion
