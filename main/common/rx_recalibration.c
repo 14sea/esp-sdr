@@ -35,7 +35,6 @@ void __wrap_phy_chip_set_chan_ana(unsigned mhz) {
     __real_phy_chip_set_chan_ana(measurement_mhz ? measurement_mhz : mhz);
 }
 extern void phy_set_rx_gain_cal_dc(unsigned, unsigned, void *, void *);
-extern void phy_set_rx_gain_cal_iq(unsigned, unsigned, void *, unsigned, unsigned, unsigned);
 extern void phy_adc_rate_cal_rxdc(void);
 extern void phy_set_rx_gain_table(unsigned, unsigned);
 void rx_recalibrate(unsigned mhz) {
@@ -45,15 +44,19 @@ void rx_recalibrate(unsigned mhz) {
     unsigned band = phy_param[42];
     uint32_t *flags = (void *)(phy_param + 148);
     *flags &= ~0x680u;
+    /* Only the DC offsets are re-measured on a retune. The loopback IQ
+     * calibration (phy_set_rx_gain_cal_iq) drives the transmitter with a
+     * test tone about 5 MHz above the LO for several milliseconds, which
+     * leaks to the antenna at the requested frequency. The IQ coefficients
+     * installed by the PHY itself (at boot, and again from its own
+     * temperature tracking at a reference channel) are left in place. */
     if (band) {
         /* Fill every interpolation bin with fresh measurements at this LO. */
         phy_set_rx_gain_cal_dc(0, 1, phy_param + 384, phy_param + 912);
-        phy_set_rx_gain_cal_iq(0, mhz, phy_param + 222, 1, 0, 0);
     } else {
         phy_set_rx_gain_cal_dc(0, 1, phy_param + 312, phy_param + 896);
         phy_adc_rate_cal_rxdc();
         phy_set_rx_gain_cal_dc(1, 1, phy_param + 348, phy_param + 904);
-        phy_set_rx_gain_cal_iq(0, mhz, phy_param + 172, 0, 0, 0);
     }
     *flags |= 0x480u;
     phy_set_rx_gain_table(mhz, 0);

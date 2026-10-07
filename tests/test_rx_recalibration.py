@@ -91,8 +91,10 @@ void phy_set_rx_gain_cal_dc(unsigned table,unsigned debug,void *rf,void *bb) {
     assert(!(*flags&0x680));
     reference_tune(2432); assert(tuned==wanted); dc++;
 }
+/* Tripwire: the loopback IQ calibration transmits a test tone, so a retune
+ * must never reach it. rx_recalibration.c no longer references the symbol. */
 void phy_set_rx_gain_cal_iq(unsigned a,unsigned b,void *out,unsigned band,unsigned d,unsigned e) {
-    reference_tune(5600); assert(tuned==wanted); iq++;
+    assert(0);
 }
 void phy_adc_rate_cal_rxdc(void) {}
 void phy_set_rx_gain_table(unsigned mhz,unsigned debug) {
@@ -123,12 +125,17 @@ int main(void) {
         164
 #endif
     );
+
     const unsigned frequencies[]={2413,5340,2413,2150};
     for(unsigned i=0;i<4;i++) {
         wanted=frequencies[i]; *flags=0xffffffff;
         unsigned old_dc=dc;
         rx_recalibrate(wanted);
+#if CONFIG_IDF_TARGET_ESP32C5
+        assert(dc>old_dc && iq==0 && tables==i+1);
+#else
         assert(dc>old_dc && iq==i+1 && tables==i+1);
+#endif
         /* Unrelated calibration bits must survive; only RX caches expire. */
         assert((*flags&~0x680u)==(0xffffffffu&~0x680u));
         reference_tune(2437); assert(tuned==2437);
