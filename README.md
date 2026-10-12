@@ -2,6 +2,9 @@
 
 <img src="docs/espargos-logo.png" width="40%" align="right" alt="ESPARGOS logo">
 
+### Try it yourself: [Project overview](https://espargos.net/espsdr/) · [Browser SDR viewer](https://espargos.net/espsdr/app/) · [Browser firmware installer](https://espargos.net/espsdr/app/flash.html)
+
+
 ESP-SDR turns the ESP32's built-in 2.4 GHz Wi-Fi radio into a
 **software-defined radio (SDR)**. It lets you capture the radio signal itself
 and process it in software, so you can view the spectrum and study signals
@@ -21,10 +24,6 @@ including continuous RF capture on selected chips.
 
 The diagram shows the hardware's receive and transmit paths; this firmware
 currently implements reception only.
-
-[Project overview](https://espargos.net/espsdr/) ·
-[Browser SDR viewer](https://espargos.net/espsdr/app/) ·
-[Browser firmware installer](https://espargos.net/espsdr/app/flash.html)
 
 **Parts of the firmware code are AI-generated.**
 While we have a very good understanding of how the IQ sampling functionality works on the ESP32-C61 chip (used in our ESPARGOS One array), making IQ sampling work on the whole range of ESP32 family chips would have been too much work without LLM support.
