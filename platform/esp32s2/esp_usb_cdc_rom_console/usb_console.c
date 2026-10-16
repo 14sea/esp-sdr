@@ -396,6 +396,23 @@ ssize_t esp_usb_console_flush(void)
     return ret;
 }
 
+/* ESP-SDR: hand up to `size` bytes directly to the ROM CDC driver, bypassing
+ * the 64-byte console buffer, so one call can queue several USB packets.
+ * Returns the number of bytes accepted (0 while the endpoint is busy). */
+ssize_t esp_usb_console_write_direct(const void* buf, size_t size)
+{
+    if (s_cdc_acm_device == NULL) {
+        return -1;
+    }
+    write_lock_acquire();
+    ssize_t ret = s_usb_tx_buf_pos ? 0 : cdc_acm_fifo_fill(s_cdc_acm_device, (const uint8_t*) buf, size);
+    if (s_usb_tx_buf_pos) {
+        esp_usb_console_flush_internal(0);
+    }
+    write_lock_release();
+    return ret;
+}
+
 ssize_t esp_usb_console_write_buf(const char* buf, size_t size)
 {
     if (s_cdc_acm_device == NULL) {

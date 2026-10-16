@@ -178,6 +178,9 @@ static int64_t transfer_deadline(size_t size) {
     return esp_timer_get_time() + timeout;
 }
 
+/* S2 ROM CDC writes: 256 bytes per call queue several USB packets at once.
+ * This doubles throughput over 64-byte writes; larger chunks gain nothing. */
+#define S2_USB_CHUNK 256
 size_t burst_serial_try_send(const void *data, size_t size) {
     const uint8_t *p = data;
     size_t done = 0;
@@ -191,8 +194,7 @@ size_t burst_serial_try_send(const void *data, size_t size) {
             sent = usb_serial_jtag_ll_write_txfifo(p + done, size - done > 64 ? 64 : size - done);
             usb_serial_jtag_ll_txfifo_flush();
 #elif CONFIG_IDF_TARGET_ESP32S2
-            sent = esp_usb_console_write_buf((const char *)p + done, size - done > 64 ? 64 : size - done);
-            if (sent > 0) esp_usb_console_flush();
+            sent = esp_usb_console_write_direct(p + done, size - done > S2_USB_CHUNK ? S2_USB_CHUNK : size - done);
 #endif
         }
         if (sent <= 0) break;
@@ -219,12 +221,9 @@ bool IRAM_ATTR burst_serial_send(const void *data, size_t size) {
             usb_serial_jtag_ll_txfifo_flush();
 #elif CONFIG_IDF_TARGET_ESP32S2
 
-            sent = esp_usb_console_write_buf((const char *)p, size > 64 ? 64 : size);
+            sent = esp_usb_console_write_direct(p, size > S2_USB_CHUNK ? S2_USB_CHUNK : size);
             if (sent < 0) return false;
-            if (!sent)
-                taskYIELD();
-            else
-                esp_usb_console_flush();
+            if (!sent) taskYIELD();
 #else
             return false;
 #endif

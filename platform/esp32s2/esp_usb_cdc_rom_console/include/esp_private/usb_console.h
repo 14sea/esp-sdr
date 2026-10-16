@@ -57,6 +57,9 @@ ssize_t esp_usb_console_write_buf(const char* buf, size_t size);
  */
 ssize_t esp_usb_console_flush(void);
 
+/* ESP-SDR extension: multi-packet write straight to the CDC driver. */
+ssize_t esp_usb_console_write_direct(const void* buf, size_t size);
+
 /**
  * @brief Read data from USB CDC
  *
