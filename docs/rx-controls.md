@@ -106,7 +106,9 @@ off-grid frequencies are not rounded to a channel.
 
 A B210 transmitted a CW tone 2 MHz above the LO, over the air, with the
 receiver in its default gain mode. "✓" means the tone was at least 15 dB
-above the noise floor (typically 35–70 dB), "–" means it was not received.
+above the noise floor (typically 35–70 dB), "–" means it was not received,
+"(weak)" means barely above the threshold (about 19 dB). The S31 received
+well from 2150 MHz.
 Measured with [`tools/rf_tone_check.py`](../tools/rf_tone_check.py),
 one board per chip, in October 2026 (`esp32s2` at 80 MS/s, others at
 their lowest rate of at least 8 MS/s):
@@ -117,6 +119,7 @@ their lowest rate of at least 8 MS/s):
 | C5 | ✓ | – | – | ✓ | ✓ | – | ✓ |
 | C61 | – | – | – | ✓ | ✓ | ✓ | |
 | H2 | – | – | – | – | ✓ | – | |
+| S31 | (weak) | (weak) | – | ✓ | ✓ | ✓ | |
 
 On the S2, the 40 and 16 MS/s modes subsample the 80 MS/s stream without
 filtering and lose roughly 15 dB of signal-to-noise ratio; use 80 MS/s where
