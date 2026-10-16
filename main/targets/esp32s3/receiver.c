@@ -18,6 +18,7 @@
 #include "nvs_flash.h"
 #include "soc/soc.h"
 
+#include "burst_parse.h"
 #include "burst_serial.h"
 #include "burst_gpio.h"
 #include "burst_version.h"
@@ -238,7 +239,12 @@ static void ring_send_capture(const ring_result_t *r,unsigned rate) {
 static bool ring_command(const char *line) {
     unsigned ms,rate,stride,upf,mode,units,nfft,sflag=0,n;char extra;int k;
     if(!strcmp(line,"DUAL?")){char h[48];snprintf(h,sizeof(h),"DUAL %u %u\n",(unsigned)ring_capture_dual_active()*(ring_capture_assist?1u:2u),(unsigned)ring_capture_core1_alive());reply(h);return true;}
-    {int off;if(sscanf(line,"FOFS %d %c",&off,&extra)==1){s3_fofs=off;rx_ready=false;prepare_rx();reply("OK\n");return true;}}
+    if(!strncmp(line,"FOFS ",5)) {
+        /* +-1 MHz covers every frequency between whole-MHz FREQ steps. */
+        int off;
+        if(!burst_parse_int(line+5,-1000,1000,&off)){reply("ERR args\n");return true;}
+        s3_fofs=off;rx_ready=false;prepare_rx();reply("OK\n");return true;
+    }
     if(!strcmp(line,"DC?")){char h[16];snprintf(h,sizeof(h),"DC %u\n",ring_capture_dc_mode);reply(h);return true;}
     if(sscanf(line,"DC %u %c",&n,&extra)==1 && n<2){ring_capture_dc_mode=n;reply("OK\n");return true;}
     if(!strcmp(line,"ASSIST?")){char h[48];snprintf(h,sizeof(h),"ASSIST %u %" PRIu32 "\n",(unsigned)ring_capture_assist,ring_capture_c0_blocks);reply(h);return true;}
@@ -290,16 +296,21 @@ static bool ring_command(const char *line) {
         char h[80];
         snprintf(h,sizeof(h),"SPEC %u %u %u %u\n",nfft,ring_capture_rate_hz(rate),RING_THRESHOLD,frequency_mhz);
         reply(h);
-    } else if(sscanf(line,"IQS %u %u %u %u %u %u %c",&ms,&stride,&nfft,&rate,&upf,&mode,&extra)>=4) {
+    } else if(!strncmp(line,"IQS ",4)) {
         /* IQS ms dec bits rate [shift] [mode]: continuous decimated IQ (IQS1 frames).
          * mode 0: FIR at 0 Hz IF; mode 2: +fs/4 shift first (LO tuned fs/4 below).
          * Default shift scales the 15-bit FIR output to the requested bits. */
-        int kk=sscanf(line,"IQS %u %u %u %u %u %u",&ms,&stride,&nfft,&rate,&upf,&mode);
-        if(kk<5)upf=nfft<15u?15u-nfft:0u;
-        if(kk<6)mode=0;
+        unsigned f[6];
+        int kk=burst_parse_uints(line+4,f,6);
+        if(kk<4){reply("ERR args\n");return true;}
+        ms=f[0];stride=f[1];nfft=f[2];rate=f[3];
+        upf=kk>=5?f[4]:nfft<15u?15u-nfft:0u;
+        mode=kk>=6?f[5]:0;
         if(mode!=0 && mode!=2){reply("ERR mode\n");return true;}
         if(rate!=0 && rate!=1 && rate!=6){reply("ERR rate\n");return true;}
         if(!usb){reply("ERR transport\n");return true;}
+        if(stride<64 || stride>1024 || (stride&(stride-1)) || (nfft!=4 && nfft!=8 && nfft!=16) || upf>24 ||
+           ms>86400000u){reply("ERR args\n");return true;}
         c.mode=RING_MODE_IQ;c.rate=rate;c.duration_ms=ms;c.iq_dec=stride;c.iq_bits=nfft;c.iq_shift=upf;c.iq_rot=mode==2;tag="IQSEND";
         char h[96];
         snprintf(h,sizeof(h),"IQS %u %u %u %u %u %u\n",ring_capture_rate_hz(rate),stride,nfft,upf,mode,frequency_mhz);

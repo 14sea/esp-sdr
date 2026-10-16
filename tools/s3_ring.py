@@ -121,6 +121,9 @@ def do_ringcap(esp, a):
 
 def check_gapless(words, counts, fs):
     """CW phase continuity across unit boundaries."""
+    if len(counts) < 2:
+        print("NOT EVALUATED: continuity needs at least two units")
+        return False
     z = iq_from_words(words)
     z -= z.mean()
     edges = np.cumsum([0] + counts)

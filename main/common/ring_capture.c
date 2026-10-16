@@ -1344,10 +1344,11 @@ RING_HOT void ring_capture_run(const ring_config_t *cfg, ring_result_t *r) {
     const bool iq = cfg->mode == RING_MODE_IQ;
     if (iq) {
         unsigned d = cfg->iq_dec, l = 0;
-        while ((1u << l) < d) l++;
-        if (d < 64u || d > 1024u || (1u << l) != d || (cfg->iq_bits != 4 && cfg->iq_bits != 8 && cfg->iq_bits != 16) || cfg->iq_shift > 24) {
+        /* Validate before deriving log2: an unbounded shift loop never ends on Xtensa. */
+        if (d < 64u || d > 1024u || (d & (d - 1u)) || (cfg->iq_bits != 4 && cfg->iq_bits != 8 && cfg->iq_bits != 16) || cfg->iq_shift > 24) {
             fail(r, RING_FAIL_ARG, 2); return;
         }
+        while ((1u << l) < d) l++;
         memset(&iqs, 0, offsetof(typeof(iqs), out));
         iqs.dec = d; iqs.log2d = l; iqs.bits = cfg->iq_bits; iqs.shift = cfg->iq_shift;
         fir_rot = cfg->iq_rot;
