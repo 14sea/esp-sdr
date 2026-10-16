@@ -10,6 +10,13 @@ Protocol 6 advertises `RXLIMITS` in `CAPS`. Query `LIMITS?` after `INFO` for:
 
 Hardware AGC is the default; manual gain indices are not absolute gain in dB.
 
+The Wi-Fi AGC is built to settle on packet preambles. It does not protect
+the ADC from a strong *continuous* signal: with a B210 tone a few
+centimetres from the antenna, every Wi-Fi chip clipped in AGC mode (peak at
+full scale), and clipping products buried the tone. Use manual gain for strong
+signals. On the H2, which has no usable AGC for this purpose, `GAIN HARDWARE`
+runs a firmware AGC instead; see [esp32h2.md](esp32h2.md).
+
 ## Gain implementation
 
 Gain maxima come from the calibrated PHY tables where available. C61 and S3
