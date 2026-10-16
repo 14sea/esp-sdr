@@ -90,39 +90,7 @@ static void rx_filter_restore(void) {
     if (rx_filter >= 0) chip_i2c_writeReg(0x67, 1, 0, rx_filter_saved);
 }
 
-static size_t packed_size(unsigned n) {
-    return (n * 20u + 7u) / 8u;
-}
-/* Two complete IQ10 samples occupy five bytes; an odd tail occupies three. */
-static void pack_iq(unsigned n) {
-    uint8_t *p = (uint8_t *)IQ_BUFFER;
-    for (unsigned j = 0; j < n; j += 2, p += 5) {
-        uint32_t a = IQ_BUFFER[j] & 0xfffffu;
-        uint32_t b = j + 1 < n ? IQ_BUFFER[j + 1] & 0xfffffu : 0;
-        p[0] = a;
-        p[1] = a >> 8;
-        p[2] = (a >> 16) | (b << 4);
-        if (j + 1 < n) {
-            p[3] = b >> 4;
-            p[4] = b >> 12;
-        }
-    }
-}
-
-/* IQ8 is signed two's complement I then Q. Retain each IQ10 field's
- * upper eight bits (arithmetic truncation). */
-static void pack_iq8(unsigned n) {
-    uint8_t *p = (uint8_t *)IQ_BUFFER;
-    for (unsigned j = 0; j < n; j++) {
-        uint32_t w = IQ_BUFFER[j];
-        p[2 * j] = (w >> 2) & 255;
-        p[2 * j + 1] = (w >> 12) & 255;
-    }
-}
-
-static size_t wire_size(unsigned n, unsigned format) {
-    return format == 16 ? n * 2 : format == 20 ? packed_size(n) : n * 4;
-}
+#include "burst_capture.h"
 static portMUX_TYPE capture_mux = portMUX_INITIALIZER_UNLOCKED;
 /* Run one snapshot into IQ_BUFFER. Returns NULL on success, else the error reply. */
 static const char *dump_iq(unsigned n, unsigned divider, unsigned *capture_us) {
@@ -232,15 +200,7 @@ static bool spectrum_acquire(unsigned n, unsigned rate, const uint32_t **data, u
 static bool capture(unsigned n, unsigned divider, unsigned format) {
     unsigned elapsed;
     if (!acquire_iq(n, divider, &elapsed)) return false;
-    size_t bytes = wire_size(n, format);
-    if (format == 16)
-        pack_iq8(n);
-    else if (format == 20)
-        pack_iq(n);
-    uint32_t crc = esp_rom_crc32_le(0, (const uint8_t *)IQ_BUFFER, bytes);
-    char h[96];
-    snprintf(h, sizeof(h), "DATA %u %08" PRIx32 " %" PRIu32 "\n", n, crc, (uint32_t)elapsed);
-    return send_bytes(h, strlen(h)) && send_bytes(IQ_BUFFER, bytes);
+    return burst_send_capture(n, format, elapsed);
 }
 
 static void handle_command(char *line) {

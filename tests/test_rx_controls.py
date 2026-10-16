@@ -203,7 +203,7 @@ int main(void){
 
     def test_h2_filter_preserves_high_bit_and_restores_calibration(self):
         source=(ROOT/'main/targets/esp32h2/receiver.c').read_text()
-        functions=source[source.index('extern unsigned chip_i2c_readReg'):source.index('static size_t packed_size')]
+        functions=source[source.index('extern unsigned chip_i2c_readReg'):source.index('#include "burst_capture.h"')]
         self.compile_run(r'''#include <assert.h>
 #include <stdbool.h>
 bool rx_recalibration_stale(void) { return false; }
