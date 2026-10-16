@@ -26,17 +26,24 @@ def command(port, text):
     return port.readline().decode('ascii').strip()
 
 
-def check(port, milliseconds, stats=False):
+def synchronize(port):
+    """Wait for an echoed marker. Opening some ports resets the board, so
+    boot logs and queued replies may precede it; RELEASE frees the lease."""
     deadline=time.monotonic()+10
     port.timeout=.2
     while time.monotonic()<deadline:
-        port.write(b'\nRELEASE\n')
-        if port.readline().strip()==b'OK':
-            break
-    else:
-        raise TimeoutError('Could not synchronize the serial lease')
-    port.timeout=5
-    port.reset_input_buffer()
+        marker=f'SYNC {time.monotonic_ns()}'.encode()
+        port.write(b'\nRELEASE\n'+marker+b'\n')
+        end=time.monotonic()+1
+        while time.monotonic()<end:
+            if port.readline().strip()==marker:
+                port.timeout=5
+                return
+    raise TimeoutError('Could not synchronize the serial lease')
+
+
+def check(port, milliseconds, stats=False):
+    synchronize(port)
     result={'identity':command(port,'INFO'),'transport':command(port,'TRANSPORT?'),'runs':[]}
     caps=command(port,'CAPS').split()
     if 'SPECCAPS' not in caps:
@@ -46,6 +53,9 @@ def check(port, milliseconds, stats=False):
     if not line.startswith('SPECINFO '):
         raise RuntimeError(line)
     result['capabilities']=json.loads(line[9:])
+    transport=result['transport'].split()[1] if result['transport'].startswith('TRANSPORT ') else None
+    if transport not in result['capabilities'].get('transports',[transport]):
+        raise RuntimeError(f'Spectra are not offered over {transport}; use {result["capabilities"]["transports"]}')
     for profile in result['capabilities']['profiles']:
         fs,rate,n,stride,units=profile[:5]
         for detector in (0,1):
