@@ -73,6 +73,12 @@ sample rates and bandwidth settings, including odd sample counts and filter
 restoration. Host regression tests cover commands, filter preservation,
 capability export and SRAM-bank exclusion.
 
+**Power:** a C2 powered from a USB-UART adapter's 3.3 V pin (an FT232R
+supplies about 50 mA) boots, then resets in a loop the moment the radio
+starts: `rst:0x3 (RTC_SW_SYS_RST)` right after `app_main()`, or
+`rst:0xf (BROWNOUT_RST)` with the brownout detector disabled. The boot log runs
+at 74880 baud with the 26 MHz crystal. Give the board a proper 3.3 V supply.
+
 The CH340 connection can lose bytes even at 1 Mbaud. Use the viewer's
 **Switch to 1 Mbaud** warning and CRC recovery; these checks do not establish
 lossless UART delivery. The default remains 2 Mbaud, and `BAUD 1000000`
