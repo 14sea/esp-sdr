@@ -1168,6 +1168,12 @@ IRAM_ATTR static void c1_encode_step(void) {
 IRAM_ATTR static void c1_emit_frame(void) {
     while (c1enc.pending) c1_encode_step(); /* frame_out holds the previous frame */
     ring_result_t *r = st.res;
+    if (!st.frame_ffts) { /* same as frame_close(): never send a frame without spectra */
+        r->drops++;
+        st.dropped = true;
+        st.frame_units = st.frame_pairs = st.frame_flags = 0;
+        return;
+    }
     spec_header_t h;
     h.magic = SPEC_MAGIC;
     h.frame = r->frames + r->drops;
@@ -1452,7 +1458,8 @@ IRAM_ATTR void s3_core1_main(void) {
             c1.taken = taken;
             c1_encode_step();
         }
-        if (st.frame_units) c1_emit_frame();
+        /* A final stretch in which no FFT was selected has nothing to flush. */
+        if (st.frame_ffts) c1_emit_frame();
         while (c1enc.pending) c1_encode_step();
         MEMW();
         c1.done = 1;
@@ -1731,15 +1738,15 @@ RING_HOT void ring_capture_run(const ring_config_t *cfg, ring_result_t *r) {
             if (!stop_checked && written >= THRESHOLD / 2) {
                 stop_checked = true;
                 if (!stop && duration_us && esp_timer_get_time() - t_start >= duration_us) stop = true;
-                /* Nobody has read a frame for 2 s (host closed or hung): end
-                 * an open-ended SPEC run instead of streaming forever. */
+                /* Nobody has read anything for 2 s (host closed or hung): end
+                 * an open-ended SPEC or IQS run instead of streaming forever. */
 #if CONFIG_IDF_TARGET_ESP32S3
-                if (dual && txq_tail != tail_seen) { /* core 0 sees the host reading */
+                if ((dual || iq) && txq_tail != tail_seen) { /* core 0 sees the host reading */
                     tail_seen = txq_tail;
                     st.last_ok = esp_timer_get_time();
                 }
 #endif
-                if (!stop && spec && !duration_us && esp_timer_get_time() - st.last_ok > 2000000) {
+                if (!stop && (spec || iq) && !duration_us && esp_timer_get_time() - st.last_ok > 2000000) {
                     stop = true;
                     r->stopped_by_host = true;
                 }

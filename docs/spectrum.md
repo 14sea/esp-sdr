@@ -86,7 +86,8 @@ SPECEND status detail units pairs elapsed_us late_max work_max_cycles frames dro
 ```
 
 Normal stops return status 0. A bank deadline/continuity failure stops capture
-instead of silently presenting broken timing. Empty S3 frames are dropped.
+instead of silently presenting broken timing. Empty S3 frames are dropped,
+including a final stretch in which no FFT was selected.
 A host that stops reading can lose a partial frame and the end record when
 bounded output timeouts expire. The decoder resynchronizes on CRC-valid frames
 or an end record; if it cannot establish the end boundary, it marks the
