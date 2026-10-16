@@ -49,9 +49,18 @@ roll-off does not guarantee alias-free reception.
 `CAP` returns raw 32-bit words. Odd sample counts are supported.
 
 H2's `force_rx_gain` takes two arguments. Its calibrated maximum index is
-stored in `phy_param[83]` (66 on the tested board). Releasing forced gain
-also leaves `bt_rx_force(1)` active. Gain indices are not dB, and some settings
-can saturate the ADC.
+stored in `phy_param[83]` (66 on the tested board). Gain indices are not dB.
+
+The Bluetooth AGC only tracks the signal while the link layer receives
+packets. Left alone during a capture it parks in a fixed state with a large
+DC offset, and a B210 test tone at +2 MHz did not show up at all. So
+`GAIN HARDWARE` on the H2 is a small firmware AGC instead: before each
+capture, up to six 512-sample probes adjust the forced gain until the
+largest I/Q value is between 128 and 448 of 511. On the tested board,
+indices 2–60 are monotonic at about 1 dB per step (index 0/1 and 61+
+saturate, 66 collapses), so the AGC stays within that range. With it, the
+tone was received at 58–68 dB SNR from 2300 to 2650 MHz, and the peak stayed
+at 236–313 of 511 over a 60 dB range of input levels.
 
 ## Analog filter
 

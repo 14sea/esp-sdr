@@ -1,5 +1,6 @@
 /* ESP32-H2 burst SDR over native USB Serial/JTAG and UART0. */
 #include <inttypes.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -123,13 +124,8 @@ static size_t wire_size(unsigned n, unsigned format) {
     return format == 16 ? n * 2 : format == 20 ? packed_size(n) : n * 4;
 }
 static portMUX_TYPE capture_mux = portMUX_INITIALIZER_UNLOCKED;
-static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
-    if (divider < 6 || divider > 9) {
-        reply("ERR rate\n");
-        return false;
-    }
-    prepare_rx();
-
+/* Run one snapshot into IQ_BUFFER. Returns NULL on success, else the error reply. */
+static const char *dump_iq(unsigned n, unsigned divider, unsigned *capture_us) {
     for (unsigned j = 0; j < n; j++) IQ_BUFFER[j] = 0xa5a0055au;
     rx_filter_apply();
     /* Prevent task/interrupt interleaving during the bank handoff and
@@ -163,18 +159,68 @@ static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
     __asm__ volatile("fence rw,rw" ::: "memory");
     taskEXIT_CRITICAL(&capture_mux);
     rx_filter_restore();
-    if (!done) {
-        reply("ERR capture_timeout\n");
+    if (!done) return "ERR capture_timeout\n";
+    for (unsigned j = 0; j < n; j++)
+        if (IQ_BUFFER[j] == 0xa5a0055au) return "ERR capture_incomplete\n";
+    *capture_us = elapsed;
+    return NULL;
+}
+
+/* The H2's Bluetooth AGC only tracks the signal while the link layer receives
+ * packets. During a capture it parks in a fixed state with a large DC offset,
+ * and an external test tone does not show up at all. So "hardware" gain mode
+ * runs a small AGC here instead: probe captures adjust the forced gain until
+ * the peak sample sits well inside the ADC range. On the tested board, indices
+ * 2..60 are monotonic at roughly 1 dB per step; outside that range the table
+ * saturates or collapses. */
+#define AGC_MIN    2
+#define AGC_MAX    60
+#define AGC_PROBE  512
+#define AGC_TARGET 256 /* of 511 */
+static unsigned agc_index = 30;
+static unsigned probe_peak(void) {
+    unsigned peak = 0;
+    for (unsigned j = 0; j < AGC_PROBE; j++) {
+        int i = IQ_BUFFER[j] & 1023, q = (IQ_BUFFER[j] >> 10) & 1023;
+        i = i >= 512 ? 1024 - i : i;
+        q = q >= 512 ? 1024 - q : q;
+        if ((unsigned)i > peak) peak = i;
+        if ((unsigned)q > peak) peak = q;
+    }
+    return peak;
+}
+static void software_agc(unsigned divider) {
+    for (int round = 0; round < 6; round++) {
+        force_rx_gain(1, agc_index);
+        bt_rx_force(1);
+        unsigned elapsed;
+        if (dump_iq(AGC_PROBE, divider, &elapsed)) return;
+        unsigned peak = probe_peak();
+        int step;
+        if (peak >= 448)
+            step = -10; /* clipping: the true level is unknown */
+        else if (peak < AGC_TARGET / 2)
+            step = peak ? (int)lroundf(20.0f * log10f((float)AGC_TARGET / (float)peak)) : 20;
+        else
+            return;
+        if (step > 20) step = 20;
+        int next = (int)agc_index + step;
+        next = next < AGC_MIN ? AGC_MIN : next > AGC_MAX ? AGC_MAX : next;
+        if ((unsigned)next == agc_index) return;
+        agc_index = next;
+    }
+}
+
+static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
+    if (divider < 6 || divider > 9) {
+        reply("ERR rate\n");
         return false;
     }
-    for (unsigned j = 0; j < n; j++) {
-        if (IQ_BUFFER[j] == 0xa5a0055au) {
-            reply("ERR capture_incomplete\n");
-            return false;
-        }
-    }
-    *capture_us = elapsed;
-    return true;
+    prepare_rx();
+    if (gain_mode == GAIN_HARDWARE) software_agc(divider);
+    const char *error = dump_iq(n, divider, capture_us);
+    if (error) reply(error);
+    return !error;
 }
 
 static bool spectrum_acquire(unsigned n, unsigned rate, const uint32_t **data, unsigned *elapsed) {
