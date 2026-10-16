@@ -85,75 +85,60 @@ tracking; explicit PHY DC measurements still invalidate calibration.
 
 ## Rates and extended tuning
 
-C6 currently exposes only nominal 80 MS/s. Other tested clock/divider settings
-and dump sources did not establish a reliable lower-rate I/Q path. Unsupported
-rates are rejected.
+All burst targets advertise `TUNEEXT` and answer `RANGE?` with
+`RANGE 100 6000 1`: any whole MHz from 100 to 6000 is accepted as a tuning
+attempt (`main/common/rx_tuning.h`). Accepting a frequency does not mean the
+PLL locked; the table below shows where reception actually works. C6 and C3
+only support 80 MS/s; other rates are rejected.
 
-All supported burst targets advertise `TUNEEXT` and answer `RANGE?` with
-`RANGE 100 6000 1`: every integer MHz from 100 through 6000 is accepted for an
-attempt. Fractional MHz and values outside that software range are rejected.
-`main/common/rx_tuning.h` defines the shared limits. PLL lock is not a condition
-for accepting a tuning command.
+C5 programs every frequency through `phy_set_chanfreq`. The other backends
+calibrate on a standard Wi-Fi channel and then program the PLL directly, so
+off-grid frequencies are not rounded to a channel.
 
-C5 programs the requested frequency through `phy_set_chanfreq` after the DC
-measurement. Other backends may select a standard channel before direct PLL
-programming; S31 also keeps arbitrary frequencies out of channel calibration.
+### Measured reception range
 
-### Experimental lower-band LO conversion
+A B210 transmitted a CW tone 2 MHz above the LO, over the air, with the
+receiver in its default gain mode. "✓" means the tone was at least 15 dB
+above the noise floor (typically 35–70 dB), "–" means it was not received.
+One board per chip, tested in October 2026 (`esp32s2` at 80 MS/s, others at
+their lowest rate of at least 8 MS/s):
 
-ESP32, S2, S3 and C3 select CKGEN `0x65:0[4]`; C2 and C6 select
-`0x62:16[3]` (host **1**). Both selectors provide **5/6** conversion at
-1842–2209 MHz. `FREQ` still specifies the receive frequency: for example,
-`FREQ 2001` programs a 2401.2 MHz PLL coordinate. Calibration runs with the
-normal divider; the alternate divider is applied after RX setup. Other
-frequencies restore normal conversion. Only the selector bit is changed.
+| Chip | 1850 | 1950 | 2100 | 2200 | 2300–2650 | 2750 | 5180–5800 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| ESP32, C2, C3, C6, S2, S3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| C5 | ✓ | – | – | ✓ | ✓ | – | ✓ |
+| C61 | – | – | – | ✓ | ✓ | ✓ | |
+| H2 | – | – | – | – | ✓ | – | |
 
-The original ESP32 needs the SDK's patched `ram_chip_i2c_*` functions and
-CKGEN host **4**; S2/S3/C3 use host **1**. ESP32 also needs its channel's fixed
-capacitor released before a direct retune, and its offset argument is in
-1/1024 MHz rather than kHz. S2 needs a bounded 512-code capacitor search:
-it holds the midpoint of the widest RFPLL voltage-window interval, restoring
-its previous capacitor fields if none is found. A successful command still
-means a tuning attempt, not a guaranteed PLL lock.
+On the S2, the 40 and 16 MS/s modes subsample the 80 MS/s stream without
+filtering and lose roughly 15 dB of signal-to-noise ratio; use 80 MS/s where
+possible.
 
-This follows the [eSpDR S3 investigation](https://github.com/h0m3us3r/eSpDR/commit/f279bf823eee41796dfd1ac21f13e1ed9b418c82).
-The older eagletest `set_freq_test()` calculation implies 8/9; external-tone
-measurements on the tested ESP32, S2, S3, C2, C3 and C6 instead confirm **5/6**.
-Tests use a HackRF source through antennas, source-on/off comparisons,
-known tone offsets, fractional PLL settings, and returns to normal tuning.
-They establish reception at discrete frequencies, not calibrated sensitivity
-or guaranteed performance throughout the interval. Sample-clock configuration
-is unchanged; burst timing and tone positions were checked at nominal 80 MS/s.
+### Lower-band LO conversion (5/6 divider)
 
-C5, C61, H2 and S31 were also checked. Their analog register layouts differ:
-C5 places CKGEN in block `0x68`, while C61/S31's SDK resets CKGEN through
-block `0x62`. The legacy `0x65:0[4]` selector is not exposed as on the older
-chips, and no equivalent mode has been qualified. They keep their existing
-frequency programming; do not apply the old bit or frequency multiplier to
-them. The shared `rx_lo.h` deliberately accepts only the six verified chips.
+Below 2210 MHz, ESP32, C2, C3, C6, S2 and S3 switch the LO to a 5/6 divider
+(CKGEN `0x65:0[4]` on ESP32/S2/S3/C3, `0x62:16[3]` with host 1 on C2/C6).
+`FREQ` still names the receive frequency: `FREQ 2001` programs a 2401.2 MHz PLL
+coordinate. Calibration runs with the normal divider; the alternate divider is
+applied after RX setup, and other frequencies restore normal conversion.
+This follows the [eSpDR S3 investigation](https://github.com/h0m3us3r/eSpDR/commit/f279bf823eee41796dfd1ac21f13e1ed9b418c82);
+external-tone measurements confirmed 5/6 (not the 8/9 suggested by older
+vendor code).
 
-The browser negotiates ranges for every chip and uses them for text entry and
-spectrum click-to-tune. Older firmware retains its advertised limits, with
-legacy fallbacks only when it does not advertise `TUNEEXT`. An informational
-warning appears outside 2400–2483.5 MHz; C5 also excludes its 5150–5895 MHz Wi-Fi band from the
-warning. This never blocks tuning.
+Chip quirks: the ESP32 needs the SDK's patched `ram_chip_i2c_*` functions with
+CKGEN host 4, must release its channel's fixed capacitor before a direct
+retune, and takes its frequency offset in 1/1024 MHz rather than kHz. The S2
+searches up to 512 capacitor codes and keeps the middle of the widest RFPLL
+voltage window, restoring the previous fields if none is found.
 
-The 100–6000 MHz expansion is host-test/build verified only. The historical
-hardware checks below covered the previous 2100–2800 MHz range; they do not
-validate the new endpoints or RF performance.
+C5, C61, H2 and S31 have different analog register layouts and no qualified
+equivalent; `rx_lo.h` only accepts the six chips above. C61 and S31 instead
+recover failed low-band PLL calibration automatically, which is why the C61
+still receives at 2200 MHz.
 
-ESP32 validation on an ESP32-D0WD-V3 rev. 3.1 with a 40 MHz crystal covered
-all 701 whole-MHz settings with CRC-checked captures, plus 132 maximum-size
-captures across 80/40/16 MS/s, 8/10-bit packing and manual gain/AGC. This
-checks command and capture stability, not RF accuracy or PLL lock.
-
-C61 validation on an ESP32-C61HR2 rev. 1.0 with a 40 MHz crystal likewise
-covered all 701 settings with CRC-checked captures, plus 264 maximum-size
-captures across all six rates, 8/10-bit packing and manual gain/AGC. RF
-accuracy and PLL lock across the extended range remain unverified.
-
-All advertised rates are nominal. Capture timing and payload checks do not
-replace independent RF/sample-clock calibration.
+The browser negotiates each chip's range and shows an informational warning
+outside 2400–2483.5 MHz (and, on the C5, outside 5150–5895 MHz). It never
+blocks tuning.
 
 ## Capture memory
 
