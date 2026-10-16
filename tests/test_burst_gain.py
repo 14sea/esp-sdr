@@ -53,6 +53,13 @@ int main(void) {
                 'void bt_rx_force(unsigned enabled) { receiver_on=enabled; }\nstatic void reply(')
             h2 = h2.replace('gain_apply(); assert(forced==0);',
                 'gain_apply(); assert(forced==0 && receiver_on==1);')
+            # The H2 table is only usable up to index 56, and indices 0/1 act as 2.
+            h2 = h2.replace('assert(gain_command("GAIN MANUAL 76")); assert(selected==76);\n'
+                            ' assert(!gain_command("GAIN MANUAL 77")); assert(selected==76);\n'
+                            ' mock_maximum=71; assert(!gain_command("GAIN MANUAL 72"));',
+                            'assert(gain_command("GAIN MANUAL 56")); assert(selected==56);\n'
+                            ' assert(!gain_command("GAIN MANUAL 57")); assert(selected==56);\n'
+                            ' assert(gain_command("GAIN MANUAL 0")); assert(forced==1 && selected==2);')
             h2 = h2.replace('assert(gain_command("GAIN HARDWARE")); assert(forced==0);',
                 'receiver_on=0; assert(gain_command("GAIN HARDWARE")); assert(forced==0 && receiver_on==1);')
             source.write_text(h2)

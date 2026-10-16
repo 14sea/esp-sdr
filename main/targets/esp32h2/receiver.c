@@ -171,10 +171,10 @@ static const char *dump_iq(unsigned n, unsigned divider, unsigned *capture_us) {
  * and an external test tone does not show up at all. So "hardware" gain mode
  * runs a small AGC here instead: probe captures adjust the forced gain until
  * the peak sample sits well inside the ADC range. On the tested board, indices
- * 2..60 are monotonic at roughly 1 dB per step; outside that range the table
+ * 2..56 are monotonic at roughly 1 dB per step; outside that range the table
  * saturates or collapses. */
 #define AGC_MIN    2
-#define AGC_MAX    60
+#define AGC_MAX    56 /* same limit as gain_max() */
 #define AGC_PROBE  512
 #define AGC_TARGET 256 /* of 511 */
 static unsigned agc_index = 30;

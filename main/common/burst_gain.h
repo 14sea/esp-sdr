@@ -28,7 +28,11 @@ static unsigned gain_max(void) {
 #else
     unsigned maximum = (REG_READ(BURST_GAIN_REG) >> 8) & 127u;
 #endif
-#if CONFIG_IDF_TARGET_ESP32C5
+#if CONFIG_IDF_TARGET_ESP32H2
+    /* Above 56 the receiver saturates on its own DC offset, and the top index
+     * (66 on the tested board) collapses to almost no signal. */
+    return maximum < 80u ? (maximum > 56u ? 56u : maximum) : 0u;
+#elif CONFIG_IDF_TARGET_ESP32C5
     return maximum < 90u ? maximum : 0u;
 #elif CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2
     return maximum <= 82u ? maximum : 0u;
@@ -58,7 +62,8 @@ static void gain_apply(void) {
               manual ? (gain_threshold_saved & ~0x1fc0000u) | (gain_code << 18) : gain_threshold_saved);
 #endif
 #if CONFIG_IDF_TARGET_ESP32H2
-    force_rx_gain(manual, gain_code);
+    /* Indices 0 and 1 saturate like maximum gain; the lowest real gain is 2. */
+    force_rx_gain(manual, gain_code < 2 ? 2 : gain_code);
     /* Keep the Bluetooth receiver running even when releasing forced gain. */
     bt_rx_force(1);
 #else
