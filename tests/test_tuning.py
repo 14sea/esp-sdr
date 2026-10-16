@@ -305,6 +305,8 @@ static bool limits_command(const char *s){return false;}
 static bool capture(unsigned n,unsigned d,unsigned f){return true;}
 static bool capture_rate(unsigned n,unsigned d,unsigned f){return true;}
 static void prepare_rx(void){rx_ready=true;}
+#include "rx_tuning.h"
+static bool frequency_valid(unsigned m){return m>=RX_FREQ_MIN && m<=RX_FREQ_MAX;}
 static void apply_gain(void){}
 static void s31_tune(unsigned f){assert(frequency_mhz==f);}
 static void vTaskDelay(unsigned t){}
@@ -318,7 +320,9 @@ static unsigned phy_i2c_readReg(unsigned a,unsigned b,unsigned c){return 0;}
                     target_dir /= 'burst'
                 source=(target_dir/'receiver.c').read_text()
                 name='command' if target=='esp32s31' else 'handle_command'
-                handler=source[source.index('static void '+name+'('):source.index('void app_main(')]
+                start=source.find('#define BURST_ID')
+                if start<0: start=source.index('static void '+name+'(')
+                handler=source[start:source.index('void app_main(')]
                 self.compile_run(f'#define CONFIG_IDF_TARGET_{target.upper()} 1\n'+stub+handler+r'''
 static void send(const char *s){char line[128];snprintf(line,sizeof(line),"%s",s);HANDLER(line);}
 int main(void){

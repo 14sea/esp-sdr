@@ -9,7 +9,7 @@ class ReceiveCommands(unittest.TestCase):
     @unittest.skipUnless(shutil.which('cc'), 'Host C compiler unavailable')
     def test_rx_commands_and_removed_transmit_commands(self):
         source=(Path(__file__).resolve().parents[1]/'main/targets/esp32s3/receiver.c').read_text()
-        handler=source[source.index('static void handle_command('):source.index('void app_main(')]
+        handler=source[source.index('#define BURST_ID'):source.index('void app_main(')]
         stub=r'''
 #include <assert.h>
 #include <stdbool.h>
@@ -23,6 +23,7 @@ class ReceiveCommands(unittest.TestCase):
 #include "rx_tuning.h"
 #define S3_FREQ_MIN RX_FREQ_MIN
 #define S3_FREQ_MAX RX_FREQ_MAX
+static bool frequency_valid(unsigned m) { return m >= S3_FREQ_MIN && m <= S3_FREQ_MAX; }
 #define CONFIG_ESP_SDR_UART_ENABLED 1
 static unsigned frequency_mhz, captures, last_format;
 static int rx_filter;

@@ -203,42 +203,20 @@ static bool capture(unsigned n, unsigned divider, unsigned format) {
     return burst_send_capture(n, format, elapsed);
 }
 
+#define BURST_ID       "H2SDR"
+#define BURST_MAX_RATE 9
+#include "burst_commands.h"
+
 static void handle_command(char *line) {
     if (burst_version_command(line)) return;
     if (burst_gpio_command(line)) return;
     if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
-    if (!strcmp(line, "TRANSPORT?")) {
-        char answer[64];
-        snprintf(answer, sizeof(answer), "TRANSPORT %s %u\n",
-                 burst_serial_port() == BURST_SERIAL_UART ? "UART" : "USB", burst_serial_baud());
-        reply(answer);
-        return;
-    }
     if (limits_command(line)) return;
     if (gain_command(line)) return;
-    unsigned n, rate, crc, repeats;
+    if (burst_common_command(line)) return;
+    unsigned n;
     char extra;
-    uint64_t nonce;
-    bool iq8 = false;
-    if (!strncmp(line, "CAP16 ", 6)) {
-        memcpy(line, "CAP20", 5);
-        iq8 = true;
-    }
-    if (sscanf(line, "SYNC %" SCNu64 " %c", &nonce, &extra) == 1) {
-        char answer[48];
-        snprintf(answer, sizeof(answer), "SYNC %" PRIu64 "\n", nonce);
-        reply(answer);
-    } else if (sscanf(line, "RXRUN %u %u %u %u %c", &n, &rate, &repeats, &crc, &extra) == 4 && n >= 256 &&
-               n <= IQ_WORDS && rate <= 9 && repeats > 0 && repeats <= 1000 && (crc == 16 || crc == 20)) {
-        /* Format 16 = IQ8, 20 = IQ10 packed. Each frame
-         * is a separate capture, with RF gaps during UART transfer. */
-        bool ok = true;
-        for (unsigned j = 0; j < repeats && ok; j++) {
-            ok = capture(n, rate, crc);
-            vTaskDelay(1);
-        }
-        if (ok) reply("END\n");
-    } else if (!strcmp(line, "CAPS")) {
+    if (!strcmp(line, "CAPS")) {
         reply("CAPS VERSION GPIO SPEC SPECN SPECCAPS SPECSTAT DCT UARTBAUD RXLIMITS SERIALLEASE "
 #if CONFIG_ESP_SDR_UART_ENABLED
               "DUALSERIAL "
@@ -258,22 +236,7 @@ static void handle_command(char *line) {
         char answer[64];
         snprintf(answer, sizeof(answer), "LPF %d %u\n", rx_filter, chip_i2c_readReg(0x67, 1, 0) & 127u);
         reply(answer);
-    } else if (!strcmp(line, "RANGE?")) {
-        char answer[64];
-        snprintf(answer, sizeof(answer), "RANGE %u %u 1\n", H2_FREQ_MIN, H2_FREQ_MAX);
-        reply(answer);
-    } else if (!strcmp(line, "INFO"))
-        reply("H2SDR 6 burst 16380\n");
-    else if (sscanf(line, "FREQ %u %c", &n, &extra) == 1 && frequency_valid(n)) {
-        frequency_mhz = n;
-        rx_ready = false;
-        prepare_rx();
-        reply("OK\n");
-    } else if (((!strncmp(line, "CAP ", 4) && sscanf(line, "CAP %u %u %c", &n, &rate, &extra) == 2) ||
-                (!strncmp(line, "CAP20 ", 6) && sscanf(line, "CAP20 %u %u %c", &n, &rate, &extra) == 2)) &&
-               n >= 256 && n <= IQ_WORDS && rate <= 9)
-        capture(n, rate, !strncmp(line, "CAP20 ", 6) ? (iq8 ? 16 : 20) : 0);
-    else
+    } else
         reply("ERR command\n");
 }
 

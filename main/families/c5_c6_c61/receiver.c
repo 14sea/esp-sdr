@@ -302,6 +302,9 @@ void app_main(void) {
     burst_serial_serve(handle_command);
 }
 
+#define BURST_MAX_RATE (CONFIG_IDF_TARGET_ESP32C6 ? 0 : 5)
+#include "burst_commands.h"
+
 static void handle_command(char *line) {
     if (burst_version_command(line)) return;
     if (burst_gpio_command(line)) return;
@@ -312,64 +315,16 @@ static void handle_command(char *line) {
     if (ring_test(line)) return;
 #endif
     if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
-    if (!strcmp(line, "TRANSPORT?")) {
-        char h[64];
-        snprintf(h, sizeof(h), "TRANSPORT %s %u\n", burst_serial_port() == BURST_SERIAL_UART ? "UART" : "USB",
-                 burst_serial_baud());
-        reply(h);
-        return;
-    }
 #ifdef FILTER_REGISTER_PROBE
     if (filter_probe_command(line)) return;
 #endif
     if (limits_command(line)) return;
     if (gain_command(line)) return;
-    unsigned n, rate, crc, repeats;
+    if (burst_common_command(line)) return;
+    unsigned n;
+    unsigned rate __attribute__((unused)); /* only the diagnostic probes use it */
     char extra;
-    uint64_t nonce;
-    bool iq8 = false;
-    if (!strncmp(line, "CAP16 ", 6)) {
-        memcpy(line, "CAP20", 5);
-        iq8 = true;
-    }
-    if (sscanf(line, "SYNC %" SCNu64 " %c", &nonce, &extra) == 1) {
-        char answer[48];
-        snprintf(answer, sizeof(answer), "SYNC %" PRIu64 "\n", nonce);
-        reply(answer);
-    }
-#if defined(C5_TUNE_PROBE) && CONFIG_IDF_TARGET_ESP32C5
-    else if (sscanf(line, "FREQEX %u %c", &n, &extra) == 1 && n >= 100 && n <= 7500) {
-        frequency_mhz = n;
-        rx_ready = false;
-        prepare_rx();
-        reply("OK\n");
-    }
-#endif
-    else if (sscanf(line, "RXRUN %u %u %u %u %c", &n, &rate, &repeats, &crc, &extra) == 4 && n >= 256 &&
-             n <= IQ_WORDS && rate <= (CONFIG_IDF_TARGET_ESP32C6 ? 0 : 5) && repeats > 0 && repeats <= 1000 &&
-             (crc == 16 || crc == 20)) {
-        /* Format 16 = IQ8, 20 = IQ10 packed. Each frame
-             * is a separate capture, with RF gaps during USB transfer. */
-        bool ok = true;
-        for (unsigned j = 0; j < repeats && ok; j++) {
-            ok = capture(n, rate, crc);
-            vTaskDelay(1);
-        }
-        if (ok) reply("END\n");
-    }
-#if defined(SAMPLE_RATE_PROBE) && CONFIG_IDF_TARGET_ESP32C5
-    else if (sscanf(line, "RXPROBE %u %u %c", &n, &rate, &extra) == 2 && n < 17 && rate < 8) {
-        probe_source = n;
-        probe_clock = rate;
-        probe_capture = true;
-        capture(16380, 0, 20);
-        probe_capture = false;
-    } else if (sscanf(line, "ADCCLOCK %u %c", &n, &extra) == 1 && (n < 2 || n == 4)) {
-        probe_adc = n;
-        reply("OK\n");
-    }
-#endif
-    else if (!strcmp(line, "CAPS")) {
+    if (!strcmp(line, "CAPS")) {
         reply(
             "CAPS VERSION GPIO SPEC SPECN SPECCAPS SPECSTAT DCT UARTBAUD RXLIMITS GAIN HWAGC IQ8 SERIALLEASE"
             " TUNEEXT"
@@ -381,8 +336,6 @@ static void handle_command(char *line) {
             " DUALSERIAL"
 #endif
             "\n");
-    } else if (!strcmp(line, "RANGE?")) {
-        reply(RX_TUNING_RANGE_REPLY);
     }
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
     else if (sscanf(line, "BANDWIDTH %u %c", &n, &extra) == 1 &&
@@ -431,19 +384,26 @@ static void handle_command(char *line) {
         reply(answer);
     }
 #endif
-    else if (!strcmp(line, "INFO")) {
-        char h[64];
-        snprintf(h, sizeof(h), BURST_ID " 6 burst %u\n", IQ_WORDS);
-        reply(h);
-    } else if (sscanf(line, "FREQ %u %c", &n, &extra) == 1 && frequency_valid(n)) {
+#if defined(C5_TUNE_PROBE) && CONFIG_IDF_TARGET_ESP32C5
+    else if (sscanf(line, "FREQEX %u %c", &n, &extra) == 1 && n >= 100 && n <= 7500) {
         frequency_mhz = n;
         rx_ready = false;
         prepare_rx();
         reply("OK\n");
-    } else if (((!strncmp(line, "CAP ", 4) && sscanf(line, "CAP %u %u %c", &n, &rate, &extra) == 2) ||
-                (!strncmp(line, "CAP20 ", 6) && sscanf(line, "CAP20 %u %u %c", &n, &rate, &extra) == 2)) &&
-               n >= 256 && n <= IQ_WORDS && rate <= (CONFIG_IDF_TARGET_ESP32C6 ? 0 : 5))
-        capture(n, rate, !strncmp(line, "CAP20 ", 6) ? (iq8 ? 16 : 20) : 0);
+    }
+#endif
+#if defined(SAMPLE_RATE_PROBE) && CONFIG_IDF_TARGET_ESP32C5
+    else if (sscanf(line, "RXPROBE %u %u %c", &n, &rate, &extra) == 2 && n < 17 && rate < 8) {
+        probe_source = n;
+        probe_clock = rate;
+        probe_capture = true;
+        capture(16380, 0, 20);
+        probe_capture = false;
+    } else if (sscanf(line, "ADCCLOCK %u %c", &n, &extra) == 1 && (n < 2 || n == 4)) {
+        probe_adc = n;
+        reply("OK\n");
+    }
+#endif
     else
         reply("ERR command\n");
 }

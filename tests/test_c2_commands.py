@@ -12,7 +12,7 @@ class C2Commands(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         source = (root / 'main/targets/esp32c2/receiver.c').read_text()
         frequency = source[source.index('#define C2_FREQ_MIN'):source.index('#define send_bytes')]
-        handler = source[source.index('static void handle_command('):source.index('void app_main(')]
+        handler = source[source.index('#define BURST_ID'):source.index('void app_main(')]
         stub = r'''
 #include <assert.h>
 #include <stdbool.h>

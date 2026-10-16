@@ -66,6 +66,9 @@ static void s3_tune(unsigned mhz) {
 
 #define S3_FREQ_MIN RX_FREQ_MIN
 #define S3_FREQ_MAX RX_FREQ_MAX
+static bool frequency_valid(unsigned mhz) {
+    return mhz >= S3_FREQ_MIN && mhz <= S3_FREQ_MAX;
+}
 static unsigned frequency_mhz = 2412;
 static bool rx_ready;
 #ifdef S3_RF_PROBE
@@ -433,62 +436,24 @@ static bool ring_command(const char *line) {
     return true;
 }
 
+#define BURST_ID       "S3SDR"
+#define BURST_MAX_RATE 6
+#include "burst_commands.h"
+
 static void handle_command(char *line) {
     if (burst_version_command(line)) return;
     if (burst_gpio_command(line)) return;
-    if (!strcmp(line, "TRANSPORT?")) {
-        char answer[64];
-        snprintf(answer, sizeof(answer), "TRANSPORT %s %u\n",
-                 burst_serial_port() == BURST_SERIAL_UART ? "UART" : "USB", burst_serial_baud());
-        reply(answer);
-        return;
-    }
 #ifdef FILTER_REGISTER_PROBE
     if (filter_probe_command(line)) return;
 #endif
     if (limits_command(line)) return;
     if (gain_command(line)) return;
     if (ring_command(line)) return;
-    unsigned n, rate, crc, repeats;
+    if (burst_common_command(line)) return;
+    unsigned n;
+    unsigned rate __attribute__((unused)); /* only the diagnostic probes use it */
     char extra;
-    uint64_t nonce;
-    bool iq8 = false;
-    if (!strncmp(line, "CAP16 ", 6)) {
-        memcpy(line, "CAP20", 5);
-        iq8 = true;
-    }
-    if (sscanf(line, "SYNC %" SCNu64 " %c", &nonce, &extra) == 1) {
-        char answer[48];
-        snprintf(answer, sizeof(answer), "SYNC %" PRIu64 "\n", nonce);
-        reply(answer);
-    } else if (sscanf(line, "RXRUN %u %u %u %u %c", &n, &rate, &repeats, &crc, &extra) == 4 && n >= 256 &&
-               n <= IQ_WORDS && rate <= 6 && repeats > 0 && repeats <= 1000 && (crc == 16 || crc == 20)) {
-        /* Format 16 = IQ8, 20 = IQ10 packed. Each frame
-             * is a separate capture, with RF gaps during USB transfer. */
-        bool ok = true;
-        for (unsigned j = 0; j < repeats && ok; j++) {
-            ok = capture(n, rate, crc);
-            vTaskDelay(1);
-        }
-        if (ok) reply("END\n");
-    }
-#ifdef SAMPLE_RATE_PROBE
-    else if (sscanf(line, "RXPROBE %u %u %c", &n, &rate, &extra) == 2 && n < 2048 && rate < 8) {
-        probe_source = n;
-        probe_clock = rate;
-        probe_capture = true;
-        capture(16380, 0, 20);
-        probe_capture = false;
-    } else if (sscanf(line, "ADCCLOCK %u %c", &n, &extra) == 1 && n <= 4) {
-        probe_adc = n;
-        reply("OK\n");
-    } else if (!strcmp(line, "ADCCLOCK?")) {
-        char h[64];
-        snprintf(h, sizeof(h), "ADC %u\n", rom_chip_i2c_readReg(0x66, 0, 4));
-        reply(h);
-    }
-#endif
-    else if (!strcmp(line, "CAPS")) {
+    if (!strcmp(line, "CAPS")) {
         reply("CAPS VERSION GPIO UARTBAUD RXLIMITS SERIALLEASE "
 #if CONFIG_ESP_SDR_UART_ENABLED
               "DUALSERIAL "
@@ -510,6 +475,22 @@ static void handle_command(char *line) {
                  rom_chip_i2c_readReg(0x67, 0, 5) & 63);
         reply(answer);
     }
+#ifdef SAMPLE_RATE_PROBE
+    else if (sscanf(line, "RXPROBE %u %u %c", &n, &rate, &extra) == 2 && n < 2048 && rate < 8) {
+        probe_source = n;
+        probe_clock = rate;
+        probe_capture = true;
+        capture(16380, 0, 20);
+        probe_capture = false;
+    } else if (sscanf(line, "ADCCLOCK %u %c", &n, &extra) == 1 && n <= 4) {
+        probe_adc = n;
+        reply("OK\n");
+    } else if (!strcmp(line, "ADCCLOCK?")) {
+        char h[64];
+        snprintf(h, sizeof(h), "ADC %u\n", rom_chip_i2c_readReg(0x66, 0, 4));
+        reply(h);
+    }
+#endif
 #ifdef S3_RF_PROBE
     else if (!strcmp(line, "WORDS?")) {
         char h[120];
@@ -565,21 +546,6 @@ static void handle_command(char *line) {
         reply("OK\n");
     }
 #endif
-    else if (!strcmp(line, "RANGE?")) {
-        char answer[64];
-        snprintf(answer, sizeof(answer), "RANGE %u %u 1\n", S3_FREQ_MIN, S3_FREQ_MAX);
-        reply(answer);
-    } else if (!strcmp(line, "INFO"))
-        reply("S3SDR 6 burst 16380\n");
-    else if (sscanf(line, "FREQ %u %c", &n, &extra) == 1 && ((n >= S3_FREQ_MIN && n <= S3_FREQ_MAX))) {
-        frequency_mhz = n;
-        rx_ready = false;
-        prepare_rx();
-        reply("OK\n");
-    } else if (((!strncmp(line, "CAP ", 4) && sscanf(line, "CAP %u %u %c", &n, &rate, &extra) == 2) ||
-                (!strncmp(line, "CAP20 ", 6) && sscanf(line, "CAP20 %u %u %c", &n, &rate, &extra) == 2)) &&
-               n >= 256 && n <= IQ_WORDS && rate <= 6)
-        capture(n, rate, !strncmp(line, "CAP20 ", 6) ? (iq8 ? 16 : 20) : 0);
     else
         reply("ERR command\n");
 }

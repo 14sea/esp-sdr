@@ -9,7 +9,7 @@ class SharedCommands(unittest.TestCase):
     @unittest.skipUnless(shutil.which('cc'), 'Host C compiler unavailable')
     def test_both_chips(self):
         source=(Path(__file__).resolve().parents[1]/'main/families/c5_c6_c61/receiver.c').read_text()
-        handler=source[source.index('static void handle_command(char *line) {'):]
+        handler=source[source.index('#define BURST_MAX_RATE'):]
         stub=r'''
 #include <assert.h>
 #include <stdbool.h>
