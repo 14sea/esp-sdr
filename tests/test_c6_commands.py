@@ -96,7 +96,7 @@ int main(void) {
  command("BANDWIDTH 1");assert(!strcmp(response,"ERR command\n"));
  command("BANDWIDTH 21 junk");assert(!strcmp(response,"ERR command\n"));
 
- command("RELEASE");assert(!strcmp(response,"OK\n"));
+ command("RELEASE");assert(!strcmp(response,"ERR command\n")); /* burst_serial_serve() answers RELEASE */
  return 0;
 }
 '''

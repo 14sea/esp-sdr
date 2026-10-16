@@ -299,30 +299,7 @@ void app_main(void) {
     (void)usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(100));
     ESP_ERROR_CHECK(usb_serial_jtag_driver_uninstall());
     burst_serial_init();
-    char line[128];
-    int owner = -1;
-    int64_t lease_deadline = 0;
-    for (;;) {
-        if (esp_timer_get_time() >= lease_deadline) owner = -1;
-        int status = burst_serial_poll_line(line, sizeof(line));
-        if (!status) {
-            vTaskDelay(1);
-            continue;
-        }
-        int port = burst_serial_port();
-        if (owner >= 0 && owner != port) {
-            reply("ERR busy\n");
-            continue;
-        }
-        if (status < 0) {
-            reply("ERR command_length\n");
-            continue;
-        }
-        owner = port;
-        handle_command(line);
-        if (!strcmp(line, "RELEASE")) owner = -1;
-        lease_deadline = esp_timer_get_time() + 5000000;
-    }
+    burst_serial_serve(handle_command);
 }
 
 static void handle_command(char *line) {
@@ -335,10 +312,6 @@ static void handle_command(char *line) {
     if (ring_test(line)) return;
 #endif
     if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
-    if (!strcmp(line, "RELEASE")) {
-        reply("OK\n");
-        return;
-    }
     if (!strcmp(line, "TRANSPORT?")) {
         char h[64];
         snprintf(h, sizeof(h), "TRANSPORT %s %u\n", burst_serial_port() == BURST_SERIAL_UART ? "UART" : "USB",

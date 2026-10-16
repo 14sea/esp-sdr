@@ -242,3 +242,39 @@ bool IRAM_ATTR burst_serial_send(const void *data, size_t size) {
 #endif
     return true;
 }
+
+static void serve_reply(const char *text) {
+    (void)burst_serial_send(text, strlen(text));
+}
+
+void burst_serial_serve(void (*handle)(char *line)) {
+    char line[128];
+    int owner = -1;
+    int64_t lease_deadline = 0;
+    for (;;) {
+        if (esp_timer_get_time() >= lease_deadline) owner = -1;
+        int status = burst_serial_poll_line(line, sizeof(line));
+        if (!status) {
+            vTaskDelay(1);
+            continue;
+        }
+        int port = burst_serial_port();
+        if (owner >= 0 && owner != port) {
+            serve_reply("ERR busy\n");
+            continue;
+        }
+        if (status < 0) {
+            serve_reply("ERR command_length\n");
+            continue;
+        }
+        owner = port;
+        if (!strcmp(line, "RELEASE")) {
+            serve_reply("OK\n");
+            owner = -1;
+        } else {
+            handle(line);
+        }
+        /* Ownership covers the entire binary transaction. */
+        lease_deadline = esp_timer_get_time() + 5000000;
+    }
+}

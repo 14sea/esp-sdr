@@ -132,7 +132,7 @@ int main(void) {
  command("BANDWIDTH 23 junk");assert(!strcmp(response,"ERR command\n") && rx_channel_mode==1);
 #endif
  command("BANDWIDTH 21 junk");assert(!strcmp(response,"ERR command\n"));
- command("RELEASE");assert(!strcmp(response,"OK\n"));
+ command("RELEASE");assert(!strcmp(response,"ERR command\n")); /* burst_serial_serve() answers RELEASE */
  return 0;
 }
 '''

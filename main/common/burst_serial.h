@@ -19,3 +19,8 @@ size_t burst_serial_try_send(const void *data, size_t size);
 
 /* Consume a stream stop request on the owning port only. */
 bool burst_serial_stop_requested(void);
+
+/* Read commands forever and pass each line to `handle`. One port at a time
+ * owns the receiver: the other gets "ERR busy" until the owner sends RELEASE
+ * or stays silent for five seconds. RELEASE itself is answered here. */
+void burst_serial_serve(void (*handle)(char *line));

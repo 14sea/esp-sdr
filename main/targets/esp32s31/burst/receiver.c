@@ -348,7 +348,7 @@ static bool capture_rate(unsigned n, unsigned rate, unsigned format) {
     return capture(n, dividers[rate], format);
 }
 
-static void command(const char *line) {
+static void command(char *line) {
     if (burst_version_command(line)) return;
     if (burst_gpio_command(line)) return;
 #ifdef RING_PROBE
@@ -474,34 +474,5 @@ void app_main(void) {
     (void)usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(100));
     ESP_ERROR_CHECK(usb_serial_jtag_driver_uninstall());
     burst_serial_init();
-    char line[128];
-    int owner = -1;
-    int64_t lease_deadline = 0;
-    for (;;) {
-        if (esp_timer_get_time() >= lease_deadline) owner = -1;
-        int status = burst_serial_poll_line(line, sizeof(line));
-        if (!status) {
-            vTaskDelay(1);
-            continue;
-        }
-        int port = burst_serial_port();
-        if (owner >= 0 && owner != port) {
-            reply("ERR busy\n");
-            continue;
-        }
-        if (status < 0) {
-            reply("ERR command_length\n");
-            continue;
-        }
-        owner = port;
-        if (!strcmp(line, "RELEASE")) {
-            reply("OK\n");
-            owner = -1;
-        } else {
-            command(line);
-        }
-        /* Ownership covers the entire binary transaction. Silence releases it
-         * after five seconds. */
-        lease_deadline = esp_timer_get_time() + 5000000;
-    }
+    burst_serial_serve(command);
 }
