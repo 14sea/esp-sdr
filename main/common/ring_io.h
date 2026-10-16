@@ -33,7 +33,15 @@ static int ring_write(const uint8_t *p, unsigned n) {
     if (burst_serial_port() == BURST_SERIAL_UART) return uart_tx_chars(UART_NUM_0, (const char *)p, n);
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
     if (!usb_serial_jtag_ll_txfifo_writable()) return 0;
+#if CONFIG_IDF_TARGET_ESP32S3
+    /* The ring is the only USB writer and flushes every packet, so a writable
+     * FIFO is empty and holds the caller's <= 64 bytes. Skip the generic
+     * per-byte FIFO status read (from inlanger/esp-sdr). */
+    for (unsigned i = 0; i < n; i++) USB_SERIAL_JTAG.ep1.rdwr_byte = p[i];
+    int written = (int)n;
+#else
     int written = usb_serial_jtag_ll_write_txfifo(p, n);
+#endif
     usb_serial_jtag_ll_txfifo_flush();
     return written;
 #else

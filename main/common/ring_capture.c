@@ -1627,7 +1627,7 @@ RING_HOT void ring_capture_run(const ring_config_t *cfg, ring_result_t *r) {
     }
 #endif
 #if CONFIG_IDF_TARGET_ESP32S3
-    uint32_t assist_cost = 0;
+    uint32_t assist_cost = 0, tx_max_cycles = 0, tx_guard_pairs = 2048u;
     if (spec) { /* warm caches/tables; bank 2 holds sentinels only */
         uint32_t assist_start = esp_cpu_get_cycle_count();
         spec_unpack(bank_ptr(2), 0, 0, spec_n);
@@ -1779,11 +1779,23 @@ RING_HOT void ring_capture_run(const ring_config_t *cfg, ring_result_t *r) {
                 LD_C0(esp_cpu_get_cycle_count() - tp);
                 continue;
             }
-            if (written + 2048u < THRESHOLD && *(volatile uint32_t *)&txq_head != txq_tail) {
 #if CONFIG_IDF_TARGET_ESP32S3
-                uint32_t tq = esp_cpu_get_cycle_count();
+            const uint32_t guard = tx_guard_pairs;
+#else
+            const uint32_t guard = 2048u;
+#endif
+            if (written + guard < THRESHOLD && *(volatile uint32_t *)&txq_head != txq_tail) {
+#if CONFIG_IDF_TARGET_ESP32S3
+                uint32_t tail_before = txq_tail, tq = esp_cpu_get_cycle_count();
                 txq_pump();
-                ld.c0_busy += esp_cpu_get_cycle_count() - tq;
+                uint32_t dt = esp_cpu_get_cycle_count() - tq;
+                ld.c0_busy += dt;
+                if (dt > tx_max_cycles) tx_max_cycles = dt;
+                /* In IQS mode core 0 only feeds USB. Once a packet has actually
+                 * gone out, reserve twice the slowest packet time plus margin
+                 * instead of idling for a fixed 2048 pairs (from inlanger/esp-sdr). */
+                if (iq && dual && txq_tail != tail_before)
+                    tx_guard_pairs = (2u * tx_max_cycles + cpp - 1u) / cpp + 128u;
 #else
                 txq_pump();
 #endif

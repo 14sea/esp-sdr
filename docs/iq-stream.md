@@ -54,7 +54,12 @@ All integers are little-endian:
 | 24+N | 4 | CRC32 (zlib) of header and payload |
 
 The sample index advances by the frame's sample count; any jump is a gap the
-host can measure exactly. Gaps occur only when the host stops reading (the
+host can measure exactly.
+
+Measured on an S3 over native USB, 4- and 8-bit samples at 250 kS/s and
+16-bit samples at 125 kS/s stream without gaps (60 s runs). 16-bit at
+250 kS/s needs about 1 MB/s, more than the USB Serial/JTAG link sustains:
+about 80 % of the samples arrive. Use 8 bits at the highest rate. Gaps occur only when the host stops reading (the
 output queue overflows, flag bit 1) or when the worker has to abandon a bank.
 
 ## Signal path
