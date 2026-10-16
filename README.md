@@ -15,7 +15,8 @@ No extra SDR hardware is needed.
 
 The ESP32's receiver normally feeds its samples straight into the fixed-function
 Wi-Fi modem. With the help of LLMs, we found an undocumented debug path that
-lets the CPU read those samples instead. Parts of the firmware are
+lets the CPU read those samples instead.
+[How it works](docs/how-it-works.md) explains the mechanism register by register. Parts of the firmware are
 AI-generated: we understand the capture mechanism well on the ESP32-C61 used in
 our ESPARGOS One array, but porting it to the whole ESP32 family by hand would
 have been too much work.
