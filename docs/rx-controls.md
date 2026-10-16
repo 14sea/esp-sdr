@@ -100,7 +100,8 @@ off-grid frequencies are not rounded to a channel.
 A B210 transmitted a CW tone 2 MHz above the LO, over the air, with the
 receiver in its default gain mode. "✓" means the tone was at least 15 dB
 above the noise floor (typically 35–70 dB), "–" means it was not received.
-One board per chip, tested in October 2026 (`esp32s2` at 80 MS/s, others at
+Measured with [`tools/rf_tone_check.py`](../tools/rf_tone_check.py),
+one board per chip, in October 2026 (`esp32s2` at 80 MS/s, others at
 their lowest rate of at least 8 MS/s):
 
 | Chip | 1850 | 1950 | 2100 | 2200 | 2300–2650 | 2750 | 5180–5800 |
