@@ -109,7 +109,9 @@ idf.py -B build-s3 -p /dev/ttyACM0 flash
 
 The S31 needs `idf.py --preview`. `tools/build_firmware.py --profile <id>`
 builds a release image the same way CI does. Host-side tests run with
-`python3 -m unittest discover -s tests`.
+`python3 -m unittest discover -s tests`. On real hardware,
+`tools/check_spectrum.py` checks every spectrum profile of a connected board,
+and `tools/rf_tone_check.py` checks reception with a USRP as test transmitter.
 
 Chip-specific notes: [ESP32-C2](docs/esp32c2.md), [ESP32-H2](docs/esp32h2.md).
 
