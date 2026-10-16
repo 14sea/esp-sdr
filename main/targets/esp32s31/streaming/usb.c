@@ -76,8 +76,11 @@ static bool control_cb(uint8_t p, uint8_t stage, const tusb_control_request_t *r
  * of milliseconds and must not block IQ completion callbacks/semaphore handoff. */
 static void submit_response(void *context) {
     uint32_t request_generation = (uint32_t)(uintptr_t)context;
-    if (request_generation == stream_load(&generation) && stream_load(&opened))
-        usbd_edpt_xfer(port, 0x81, response_data, response_bytes, false);
+    /* If the reply cannot be queued, rearm OUT anyway: the host sees a reply
+     * timeout but can still send its next request. */
+    if (request_generation == stream_load(&generation) && stream_load(&opened) &&
+        !usbd_edpt_xfer(port, 0x81, response_data, response_bytes, false))
+        usbd_edpt_xfer(port, 0x01, request_data, sizeof(request_data), false);
     xSemaphoreGive(response_submitted);
 }
 static void control_worker(void *arg) {
@@ -117,7 +120,12 @@ static bool transfer(uint8_t p, uint8_t ep, xfer_result_t result, uint32_t bytes
         xSemaphoreGive(complete);
         return true;
     }
-    if (result != XFER_RESULT_SUCCESS) return false;
+    if (result != XFER_RESULT_SUCCESS) {
+        /* A failed request or reply must not strand the control channel. */
+        if ((ep == 0x01 || ep == 0x81) && stream_load(&opened))
+            usbd_edpt_xfer(p, 0x01, request_data, sizeof(request_data), false);
+        return false;
+    }
     if (ep == 0x01) {
         control_job_t job = {.generation = stream_load(&generation), .bytes = bytes};
         if (bytes <= sizeof(job.data)) memcpy(job.data, request_data, bytes);

@@ -46,7 +46,11 @@ static struct {
     uint64_t sample;
 } events[DMA_NODES];
 static uint64_t start_us, source_samples;
+/* Per-transport loss generations: a loss reported while a restart has
+ * published STREAM_IDLE must still cancel that restart. */
+static uint32_t transport_losses[3];
 void receiver_transport_lost(stream_owner_t owner) {
+    __atomic_fetch_add(&transport_losses[owner], 1, __ATOMIC_ACQ_REL);
     uint32_t expected = owner;
     __atomic_compare_exchange_n(&stream_owner, &expected, STREAM_IDLE, false, __ATOMIC_ACQ_REL,
                                 __ATOMIC_ACQUIRE);
@@ -231,6 +235,7 @@ static void capture_loop(void *arg) {
             }
             /* Restart after tracking with a new epoch, discarding old DMA
              * data. Never recalibrate while acquisition is running. */
+            uint32_t losses = __atomic_load_n(&transport_losses[cmd.owner], __ATOMIC_ACQUIRE);
             stream_store(&stream_owner, STREAM_IDLE);
             if (running) {
                 parlio_rx_soft_delimiter_start_stop(unit, delimiter, false);
@@ -263,6 +268,12 @@ static void capture_loop(void *arg) {
             source_samples = consumed = 0;
             stream_store(&event_head, 0);
             stream_store(&stream_epoch, stream_load(&stream_epoch) + 1);
+            esp_err_t ok = ESP_OK;
+            if (cmd.owner != STREAM_IDLE &&
+                __atomic_load_n(&transport_losses[cmd.owner], __ATOMIC_ACQUIRE) != losses) {
+                cmd.owner = STREAM_IDLE;
+                ok = ESP_ERR_INVALID_STATE;
+            }
             if (cmd.owner != STREAM_IDLE) {
                 start_us = esp_timer_get_time();
                 ESP_ERROR_CHECK(parlio_rx_unit_enable(unit, true));
@@ -271,8 +282,14 @@ static void capture_loop(void *arg) {
                 ESP_ERROR_CHECK(parlio_rx_unit_receive(unit, dma_buffer, DMA_BYTES, &rx));
                 running = true;
                 stream_store(&stream_owner, cmd.owner);
+                /* A loss between the check above and publication: the
+                 * running/IDLE check below stops acquisition again. */
+                uint32_t expected = cmd.owner;
+                if (__atomic_load_n(&transport_losses[cmd.owner], __ATOMIC_ACQUIRE) != losses &&
+                    __atomic_compare_exchange_n(&stream_owner, &expected, STREAM_IDLE, false,
+                                                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                    ok = ESP_ERR_INVALID_STATE;
             }
-            esp_err_t ok = ESP_OK;
             if (requested) xQueueSend(replies, &ok, portMAX_DELAY);
         }
         unsigned owner = stream_load(&stream_owner);
