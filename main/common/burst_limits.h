@@ -2,9 +2,10 @@
  * bandwidth adds its default MHz (0 = open); null means uncharacterized. */
 #include "rx_bandwidth.h"
 static bool limits_command(const char *line) {
-    if(strcmp(line,"LIMITS?"))return false;
+    if (strcmp(line, "LIMITS?")) return false;
     char h[224];
-    snprintf(h,sizeof(h),"LIMITS {\"gain\":[0,%u,1],\"bandwidth\":"
+    snprintf(h, sizeof(h),
+             "LIMITS {\"gain\":[0,%u,1],\"bandwidth\":"
 #if CONFIG_IDF_TARGET_ESP32H2
              "[4,11,1,0]"
 #elif CONFIG_IDF_TARGET_ESP32C2
@@ -34,6 +35,8 @@ static bool limits_command(const char *line) {
 #else
              "80000000,40000000,20000000,10000000,8000000,4000000"
 #endif
-             "],\"bits\":[8,10]}\n",gain_max());
-    reply(h);return true;
+             "],\"bits\":[8,10]}\n",
+             gain_max());
+    reply(h);
+    return true;
 }

@@ -37,8 +37,10 @@ static bool rx_pll_recover(unsigned mhz) {
         unsigned mid = low + (high - low) / 2;
         unsigned status = rx_pll_probe(mid, reg2);
         if (status == 3) goto restore;
-        if (status == 1) low = mid + 1;
-        else high = mid;
+        if (status == 1)
+            low = mid + 1;
+        else
+            high = mid;
     }
     if (low == 512 || rx_pll_probe(low, reg2) != 0) goto restore;
     const unsigned first = low;
@@ -47,8 +49,10 @@ static bool rx_pll_recover(unsigned mhz) {
         unsigned mid = low + (high - low) / 2;
         unsigned status = rx_pll_probe(mid, reg2);
         if (status == 1 || status == 3) goto restore;
-        if (status == 0) low = mid + 1;
-        else high = mid;
+        if (status == 0)
+            low = mid + 1;
+        else
+            high = mid;
     }
     if (rx_pll_probe(first + (low - first - 1) / 2, reg2) != 0) goto restore;
     for (unsigned i = 0; i < 3; i++) {

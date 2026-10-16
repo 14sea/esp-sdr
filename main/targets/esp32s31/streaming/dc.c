@@ -13,34 +13,36 @@ extern void phy_pbus_force_test(unsigned, unsigned, unsigned);
  * Gain-table originals remain pristine; no NVS calibration is written. */
 float receiver_dc_before[2], receiver_dc_after[2], receiver_dc_jacobian[4];
 unsigned receiver_dc_steps;
-static int clamp_code(int value) { return value < 0 ? 0 : value > 511 ? 511 : value; }
+static int clamp_code(int value) {
+    return value < 0 ? 0 : value > 511 ? 511 : value;
+}
 static void dc_apply(int i, int q) {
     /* Store the DAC codes where the front end reloads them. PBUS-only writes
      * can be overwritten by gain/state transitions during reception. */
-    if(!burst_gain_dc_set(receiver_config.gain, i, q))return;
+    if (!burst_gain_dc_set(receiver_config.gain, i, q)) return;
     phy_pbus_force_test(2, 2, i);
     phy_pbus_force_test(3, 2, q);
     /* Like sensor-firmware: latch an identical shadow entry, then the real
      * entry, keeping forced gain enabled throughout. Never freeze all PBUS
      * receiver controls just to hold the two DC DACs. */
-    unsigned reg=REG_READ(0x2010702cu)&0x00ffffffu;
-    REG_WRITE(0x2010702cu,reg|(79u<<24));
-    REG_WRITE(0x2010702cu,reg|(receiver_config.gain<<24));
+    unsigned reg = REG_READ(0x2010702cu) & 0x00ffffffu;
+    REG_WRITE(0x2010702cu, reg | (79u << 24));
+    REG_WRITE(0x2010702cu, reg | (receiver_config.gain << 24));
     vTaskDelay(pdMS_TO_TICKS(10));
 }
-static float dc_cost(const float m[2]) { return m[0] * m[0] + m[1] * m[1]; }
+static float dc_cost(const float m[2]) {
+    return m[0] * m[0] + m[1] * m[1];
+}
 void receiver_dc_calibrate(bool (*dc_measure)(float mean[2])) {
     receiver_dc_steps = 0;
     memset(receiver_dc_jacobian, 0, sizeof(receiver_dc_jacobian));
     memset(receiver_dc_before, 0, sizeof(receiver_dc_before));
     memset(receiver_dc_after, 0, sizeof(receiver_dc_after));
     unsigned codes[2];
-    if(receiver_gain_max>=79 || !burst_gain_dc_codes(receiver_config.gain,codes))return;
-    if (!dc_measure(receiver_dc_before))
-        return;
+    if (receiver_gain_max >= 79 || !burst_gain_dc_codes(receiver_config.gain, codes)) return;
+    if (!dc_measure(receiver_dc_before)) return;
     memcpy(receiver_dc_after, receiver_dc_before, sizeof(receiver_dc_after));
-    if (dc_cost(receiver_dc_before) < .25f)
-        return;
+    if (dc_cost(receiver_dc_before) < .25f) return;
     int base[2] = {codes[0], codes[1]};
     int best[2] = {base[0], base[1]};
     float best_cost = dc_cost(receiver_dc_before);
@@ -65,8 +67,7 @@ void receiver_dc_calibrate(bool (*dc_measure)(float mean[2])) {
     receiver_dc_jacobian[2] = c;
     receiver_dc_jacobian[3] = d;
     float determinant = a * d - b * c;
-    if (fabsf(determinant) < .002f || fabsf(a) > 4 || fabsf(b) > 4 || fabsf(c) > 4 ||
-        fabsf(d) > 4) {
+    if (fabsf(determinant) < .002f || fabsf(a) > 4 || fabsf(b) > 4 || fabsf(c) > 4 || fabsf(d) > 4) {
         dc_apply(base[0], base[1]);
         return;
     }
@@ -79,13 +80,10 @@ void receiver_dc_calibrate(bool (*dc_measure)(float mean[2])) {
             for (unsigned axis = 0; axis < 2; axis++) {
                 float change = fmaxf(-32.f, fminf(32.f, delta[axis])) / (1u << trial);
                 next[axis] = clamp_code(best[axis] + (int)roundf(change));
-                if (next[axis] < base[axis] - 96)
-                    next[axis] = base[axis] - 96;
-                if (next[axis] > base[axis] + 96)
-                    next[axis] = base[axis] + 96;
+                if (next[axis] < base[axis] - 96) next[axis] = base[axis] - 96;
+                if (next[axis] > base[axis] + 96) next[axis] = base[axis] + 96;
             }
-            if (next[0] == best[0] && next[1] == best[1])
-                break;
+            if (next[0] == best[0] && next[1] == best[1]) break;
             dc_apply(next[0], next[1]);
             receiver_dc_steps++;
             if (dc_measure(observed) && dc_cost(observed) < best_cost) {
@@ -97,8 +95,7 @@ void receiver_dc_calibrate(bool (*dc_measure)(float mean[2])) {
                 break;
             }
         }
-        if (!improved)
-            break;
+        if (!improved) break;
     }
     /* The last trial may be worse; always latch the best measured codes. */
     dc_apply(best[0], best[1]);

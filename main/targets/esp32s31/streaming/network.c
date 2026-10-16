@@ -67,8 +67,7 @@ static esp_err_t api(httpd_req_t *req) {
     size_t n = 0;
     while (n < req->content_len) {
         int k = httpd_req_recv(req, body + n, req->content_len - n);
-        if (k <= 0)
-            return ESP_FAIL;
+        if (k <= 0) return ESP_FAIL;
         n += k;
     }
     body[n] = 0;
@@ -83,8 +82,7 @@ static esp_err_t api(httpd_req_t *req) {
             /* The HTTP listener is dual stack: IPv4 peers arrive mapped into
              * sockaddr_in6. Never reinterpret its flow-info as an IPv4 address. */
             const struct in6_addr *address = &((struct sockaddr_in6 *)&peer)->sin6_addr;
-            if (IN6_IS_ADDR_V4MAPPED(address))
-                inet_ntop(AF_INET, &address->s6_addr[12], ip, sizeof(ip));
+            if (IN6_IS_ADDR_V4MAPPED(address)) inet_ntop(AF_INET, &address->s6_addr[12], ip, sizeof(ip));
         }
     }
     cJSON *out = control_request(input, STREAM_ETHERNET, ip);
@@ -92,12 +90,10 @@ static esp_err_t api(httpd_req_t *req) {
     char *text = cJSON_PrintUnformatted(out);
     bool bad = cJSON_HasObjectItem(out, "error");
     cJSON_Delete(out);
-    if (!text)
-        return ESP_ERR_NO_MEM;
+    if (!text) return ESP_ERR_NO_MEM;
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    if (bad)
-        httpd_resp_set_status(req, "400 Bad Request");
+    if (bad) httpd_resp_set_status(req, "400 Bad Request");
     esp_err_t e = httpd_resp_sendstr(req, text);
     free(text);
     return e;
@@ -127,16 +123,12 @@ static void link_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 }
 bool network_destination(const char *address, unsigned port) {
     destination_t d = {0};
-    if (!address || !ip4addr_aton(address, &d.peer))
-        return false;
+    if (!address || !ip4addr_aton(address, &d.peer)) return false;
     d.done = xSemaphoreCreateBinary();
-    if (!d.done)
-        return false;
-    if (tcpip_callback(resolve_destination, &d) == ERR_OK)
-        xSemaphoreTake(d.done, portMAX_DELAY);
+    if (!d.done) return false;
+    if (tcpip_callback(resolve_destination, &d) == ERR_OK) xSemaphoreTake(d.done, portMAX_DELAY);
     vSemaphoreDelete(d.done);
-    if (!d.valid)
-        return false;
+    if (!d.valid) return false;
     uint8_t *h = d.header;
     h[12] = 8;
     h[14] = 0x45;
@@ -148,10 +140,8 @@ bool network_destination(const char *address, unsigned port) {
     h[23] = 17;
     memcpy(h + 30, &d.peer, 4);
     unsigned checksum = 0;
-    for (unsigned i = 14; i < 34; i += 2)
-        checksum += (h[i] << 8) | h[i + 1];
-    while (checksum >> 16)
-        checksum = (checksum & 65535) + (checksum >> 16);
+    for (unsigned i = 14; i < 34; i += 2) checksum += (h[i] << 8) | h[i + 1];
+    while (checksum >> 16) checksum = (checksum & 65535) + (checksum >> 16);
     checksum = ~checksum;
     h[24] = checksum >> 8;
     h[25] = checksum;
@@ -178,8 +168,7 @@ bool network_send(const stream_packet_t *p) {
     int64_t deadline = esp_timer_get_time() + 1000;
     for (;;) {
         esp_err_t error = esp_eth_transmit_ctrl_bufs(ethernet, NULL, buffers, 2);
-        if (error == ESP_OK)
-            return true;
+        if (error == ESP_OK) return true;
         if (error != ESP_ERR_NO_MEM || esp_timer_get_time() >= deadline ||
             stream_load(&stream_owner) != STREAM_ETHERNET)
             return false;

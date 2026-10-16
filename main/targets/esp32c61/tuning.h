@@ -8,7 +8,7 @@ static bool frequency_valid(unsigned mhz) {
     return rx_frequency_valid(mhz);
 }
 static void c61_set_chan(unsigned mhz, unsigned mode) {
-    bool channel = (mhz >= 2412 && mhz <= 2472 && (mhz-2412)%5 == 0) || mhz == 2484;
+    bool channel = (mhz >= 2412 && mhz <= 2472 && (mhz - 2412) % 5 == 0) || mhz == 2484;
     phy_chip_set_chan(channel ? mhz : 2412, mode);
     if (!channel) {
         phy_set_freq(mhz, 0);

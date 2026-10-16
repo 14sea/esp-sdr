@@ -12,7 +12,7 @@
 #include "soc/usb_pins.h"
 #endif
 
-#define PIN(n) (UINT64_C(1) << (n))
+#define PIN(n)            (UINT64_C(1) << (n))
 #define PINS(first, last) ((PIN((last) + 1) - 1) & ~(PIN(first) - 1))
 static uint64_t available;
 static char states[SOC_GPIO_PIN_COUNT];
@@ -77,7 +77,9 @@ void burst_gpio_init(void) {
     }
 }
 
-static void reply(const char *s) { burst_serial_send(s, strlen(s)); }
+static void reply(const char *s) {
+    burst_serial_send(s, strlen(s));
+}
 
 bool burst_gpio_command(const char *line) {
     if (!strcmp(line, "GPIO?")) {
@@ -86,8 +88,8 @@ bool burst_gpio_command(const char *line) {
         size_t used = (size_t)snprintf(response, sizeof(response), "GPIO");
         for (unsigned pin = 0; pin < SOC_GPIO_PIN_COUNT; ++pin)
             if (available & PIN(pin))
-                used += (size_t)snprintf(response + used, sizeof(response) - used,
-                                         " %u:%c", pin, states[pin]);
+                used +=
+                    (size_t)snprintf(response + used, sizeof(response) - used, " %u:%c", pin, states[pin]);
         response[used++] = '\n';
         response[used] = '\0';
         reply(response);
@@ -96,9 +98,8 @@ bool burst_gpio_command(const char *line) {
     if (strcmp(line, "GPIO") && strncmp(line, "GPIO ", 5)) return false;
     unsigned pin;
     char state, extra, canonical[32];
-    if (sscanf(line, "GPIO %u %c %c", &pin, &state, &extra) != 2 ||
-        pin >= SOC_GPIO_PIN_COUNT || !(available & PIN(pin)) ||
-        (state != 'Z' && state != '0' && state != '1')) {
+    if (sscanf(line, "GPIO %u %c %c", &pin, &state, &extra) != 2 || pin >= SOC_GPIO_PIN_COUNT ||
+        !(available & PIN(pin)) || (state != 'Z' && state != '0' && state != '1')) {
         reply("ERR gpio_args\n");
         return true;
     }
@@ -111,8 +112,7 @@ bool burst_gpio_command(const char *line) {
      * moving from Z to 1. The pin stays in GPIO mode after initialization. */
     esp_err_t err = ESP_OK;
     if (state != 'Z') err = gpio_set_level(pin, state == '1');
-    if (err == ESP_OK)
-        err = gpio_set_direction(pin, state == 'Z' ? GPIO_MODE_DISABLE : GPIO_MODE_OUTPUT);
+    if (err == ESP_OK) err = gpio_set_direction(pin, state == 'Z' ? GPIO_MODE_DISABLE : GPIO_MODE_OUTPUT);
     if (err != ESP_OK) {
         reply("ERR gpio_io\n");
         return true;

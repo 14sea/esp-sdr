@@ -17,9 +17,9 @@ class BurstParse(unittest.TestCase):
 
     def test_s3_commands_validate_before_receiver_changes(self):
         source = (ROOT/'main/targets/esp32s3/receiver.c').read_text()
-        iqs = source[source.index('"IQS ",4)'):]
+        iqs = source[source.index('"IQS ", 4)'):]
         self.assertLess(iqs.index('ERR args'), iqs.index('snprintf(h'))
-        self.assertIn('burst_parse_int(line+5,-1000,1000', source)
+        self.assertIn('burst_parse_int(line + 5, -1000, 1000', source)
         ring = (ROOT/'main/common/ring_capture.c').read_text()
         self.assertLess(ring.index('(d & (d - 1u))'), ring.index('while ((1u << l) < d)'))
 

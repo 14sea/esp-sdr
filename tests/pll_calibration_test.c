@@ -25,7 +25,10 @@ void phy_i2c_writeReg(unsigned b, unsigned h, unsigned r, unsigned v) {
     writes++;
 }
 
-void esp_rom_delay_us(unsigned us) { assert(us == 50); probes++; }
+void esp_rom_delay_us(unsigned us) {
+    assert(us == 50);
+    probes++;
+}
 #include "rx_pll_cal.h"
 
 static void reset(unsigned lo, unsigned hi, unsigned initial) {
@@ -34,7 +37,11 @@ static void reset(unsigned lo, unsigned hi, unsigned initial) {
     regs[2] = 0xbb | ((initial >> 2) & 64);
     regs[11] = 0x24;
     memcpy(original, regs, sizeof(regs));
-    first = lo; last = hi; probes = writes = 0; forced = -1; unstable = false;
+    first = lo;
+    last = hi;
+    probes = writes = 0;
+    forced = -1;
+    unstable = false;
 }
 
 int main(void) {
@@ -55,13 +62,15 @@ int main(void) {
     reset(200, 208, 0);
     assert(rx_pll_recover(2412) && writes == 0); /* Nominal band untouched. */
     for (int status = 1; status <= 3; status++) {
-        reset(200, 208, 0); forced = status;
+        reset(200, 208, 0);
+        forced = status;
         assert(!rx_pll_recover(2200));
         assert(memcmp(regs, original, sizeof(regs)) == 0 && probes <= 25);
     }
     /* A one-code window that changes during the final stability check must
      * restore the complete original capacitor/manual-mode state. */
-    reset(0, 0, 511); unstable = true;
+    reset(0, 0, 511);
+    unstable = true;
     assert(!rx_pll_recover(2200));
     assert(memcmp(regs, original, sizeof(regs)) == 0);
     return 0;

@@ -3,8 +3,7 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
-typedef bool (*spectrum_acquire_fn)(unsigned n, unsigned rate,
-                                   const uint32_t **words, unsigned *elapsed_us);
+typedef bool (*spectrum_acquire_fn)(unsigned n, unsigned rate, const uint32_t **words, unsigned *elapsed_us);
 bool spectrum_command(const char *line, unsigned frequency_mhz, spectrum_acquire_fn acquire);
 
 bool spectrum_fft_init(void);

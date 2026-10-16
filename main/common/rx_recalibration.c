@@ -147,8 +147,10 @@ static void measurement_tune(void) {
     unsigned crystal = rtc_clk_xtal_freq_get();
     unsigned cap = ram_chip_i2c_readReg(0x62, 1, 0);
     ram_chip_i2c_writeReg(0x62, 1, 0, cap & ~0x80u);
-    rom_set_rf_freq_offset(crystal == 26 ? 1 : crystal == 24 ? 2 : 0,
-                          plan.mhz, (plan.offset_khz * 1024 + 500) / 1000);
+    rom_set_rf_freq_offset(crystal == 26   ? 1
+                           : crystal == 24 ? 2
+                                           : 0,
+                           plan.mhz, (plan.offset_khz * 1024 + 500) / 1000);
 #elif CONFIG_IDF_TARGET_ESP32S2
     rom_set_rf_freq_offset(0, plan.mhz, plan.offset_khz);
     (void)s2_pll_calibrate();

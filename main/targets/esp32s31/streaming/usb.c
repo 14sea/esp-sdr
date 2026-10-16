@@ -19,7 +19,10 @@ static SemaphoreHandle_t complete, response_submitted;
 static QueueHandle_t control_jobs;
 static uint32_t generation;
 static size_t response_bytes;
-typedef struct { uint32_t generation, bytes; uint8_t data[512]; } control_job_t;
+typedef struct {
+    uint32_t generation, bytes;
+    uint8_t data[512];
+} control_job_t;
 static uint8_t *samples;
 static unsigned next_buffer;
 CFG_TUSB_MEM_SECTION static uint8_t request_data[512] __attribute__((aligned(64)));
@@ -35,32 +38,32 @@ static const tusb_desc_device_t device = {.bLength = sizeof(tusb_desc_device_t),
                                           .iProduct = 2,
                                           .iSerialNumber = 3,
                                           .bNumConfigurations = 1};
-#define CONFIG_DESCRIPTOR(mps)                                                                     \
-    9, TUSB_DESC_CONFIGURATION, 39, 0, 1, 1, 0, 0x80, 250, 9, TUSB_DESC_INTERFACE, 0, 0, 3, 0xff,  \
-        0x53, 2, 0, 7, TUSB_DESC_ENDPOINT, 0x01, TUSB_XFER_BULK, (mps) & 255, (mps) >> 8, 0, 7,    \
-        TUSB_DESC_ENDPOINT, 0x81, TUSB_XFER_BULK, (mps) & 255, (mps) >> 8, 0, 7,                   \
-        TUSB_DESC_ENDPOINT, 0x82, TUSB_XFER_BULK, (mps) & 255, (mps) >> 8, 0
+#define CONFIG_DESCRIPTOR(mps)                                                                               \
+    9, TUSB_DESC_CONFIGURATION, 39, 0, 1, 1, 0, 0x80, 250, 9, TUSB_DESC_INTERFACE, 0, 0, 3, 0xff, 0x53, 2,   \
+        0, 7, TUSB_DESC_ENDPOINT, 0x01, TUSB_XFER_BULK, (mps) & 255, (mps) >> 8, 0, 7, TUSB_DESC_ENDPOINT,   \
+        0x81, TUSB_XFER_BULK, (mps) & 255, (mps) >> 8, 0, 7, TUSB_DESC_ENDPOINT, 0x82, TUSB_XFER_BULK,       \
+        (mps) & 255, (mps) >> 8, 0
 static const uint8_t hs[] = {CONFIG_DESCRIPTOR(512)}, fs[] = {CONFIG_DESCRIPTOR(64)};
 static char serial[13];
 static const char *strings[] = {(const char[]){0x09, 0x04}, "ESPARGOS", "ESP-SDR RX", serial};
 static void init(void) {}
-static bool deinit(void) { return true; }
+static bool deinit(void) {
+    return true;
+}
 static void reset(uint8_t rhport) {
     (void)rhport;
     stream_store(&opened, 0);
     stream_store(&generation, stream_load(&generation) + 1);
-    if (complete)
-        xSemaphoreGive(complete);
+    if (complete) xSemaphoreGive(complete);
     receiver_transport_lost(STREAM_USB);
 }
 static uint16_t open_driver(uint8_t rhport, const tusb_desc_interface_t *itf, uint16_t maxlen) {
-    if (itf->bInterfaceClass != 0xff || itf->bInterfaceSubClass != 0x53 ||
-        itf->bInterfaceProtocol != 2 || maxlen < 30)
+    if (itf->bInterfaceClass != 0xff || itf->bInterfaceSubClass != 0x53 || itf->bInterfaceProtocol != 2 ||
+        maxlen < 30)
         return 0;
     const uint8_t *ptr = tu_desc_next(itf);
     for (unsigned i = 0; i < 3; i++, ptr = tu_desc_next(ptr))
-        if (!usbd_edpt_open(rhport, (const tusb_desc_endpoint_t *)ptr))
-            return 0;
+        if (!usbd_edpt_open(rhport, (const tusb_desc_endpoint_t *)ptr)) return 0;
     port = rhport;
     stream_store(&opened, 1);
     usbd_edpt_xfer(port, 0x01, request_data, sizeof(request_data), false);
@@ -101,13 +104,13 @@ static void control_worker(void *arg) {
         size_t n = text ? strlen(text) : 0;
         if (!n || n >= sizeof(response_data)) {
             static const char error[] = "{\"error\":\"Control response unavailable\"}";
-            memcpy(response_data, error, sizeof(error)-1);
-            n = sizeof(error)-1;
-        } else memcpy(response_data, text, n);
+            memcpy(response_data, error, sizeof(error) - 1);
+            n = sizeof(error) - 1;
+        } else
+            memcpy(response_data, text, n);
         free(text);
         response_bytes = n;
-        if (job.generation != stream_load(&generation))
-            receiver_transport_lost(STREAM_USB);
+        if (job.generation != stream_load(&generation)) receiver_transport_lost(STREAM_USB);
         /* Check generation and submit in USB task context so bus reset cannot
          * interleave the check with endpoint submission. Wait before reusing
          * the shared response buffer for a command from a new USB session. */
@@ -151,8 +154,7 @@ bool usb_ready(void) {
     return stream_load(&opened) && tud_mounted() && tud_speed_get() == TUSB_SPEED_HIGH;
 }
 bool usb_send_and_retire(const void *data, size_t bytes, uint32_t tail_after_copy) {
-    if (!usb_ready() || bytes > STREAM_USB_BATCH * sizeof(stream_packet_t))
-        return false;
+    if (!usb_ready() || bytes > STREAM_USB_BATCH * sizeof(stream_packet_t)) return false;
     /* Fill the other internal DMA buffer while the previous transfer runs. */
     uint8_t *buffer = samples + next_buffer * STREAM_USB_BATCH * sizeof(stream_packet_t);
     memcpy(buffer, data, bytes);
@@ -161,8 +163,7 @@ bool usb_send_and_retire(const void *data, size_t bytes, uint32_t tail_after_cop
     stream_store(&stream_tail, tail_after_copy);
     /* The semaphore is the sole endpoint ownership token. A separate busy
      * flag races when this task preempts the USB completion callback. */
-    if (xSemaphoreTake(complete, pdMS_TO_TICKS(100)) != pdTRUE)
-        return false;
+    if (xSemaphoreTake(complete, pdMS_TO_TICKS(100)) != pdTRUE) return false;
     if (!usb_ready() || !usbd_edpt_claim(port, 0x82)) {
         xSemaphoreGive(complete);
         return false;
@@ -190,8 +191,8 @@ void usb_init(void) {
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     uint8_t mac[6];
     ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_BASE));
-    snprintf(serial, sizeof(serial), "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3],
-             mac[4], mac[5]);
+    snprintf(serial, sizeof(serial), "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4],
+             mac[5]);
     tud_configure_dwc2_t dwc = CFG_TUD_CONFIGURE_DWC2_DEFAULT;
     dwc.bm_double_buffered = 1u << 2;
     tud_configure(0, TUD_CFGID_DWC2, &dwc);
@@ -209,7 +210,7 @@ void usb_init(void) {
     cfg.task.priority = 24;
     cfg.task.size = 6144;
     TaskHandle_t wifi = xTaskGetHandle("wifi");
-    ESP_LOGI("stream_usb", "USB event priority %u, Wi-Fi priority %u",
-             (unsigned)cfg.task.priority, wifi ? (unsigned)uxTaskPriorityGet(wifi) : 0);
+    ESP_LOGI("stream_usb", "USB event priority %u, Wi-Fi priority %u", (unsigned)cfg.task.priority,
+             wifi ? (unsigned)uxTaskPriorityGet(wifi) : 0);
     ESP_ERROR_CHECK(tinyusb_driver_install(&cfg));
 }

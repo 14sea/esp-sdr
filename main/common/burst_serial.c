@@ -47,10 +47,9 @@ static bool baud_command(const char *line) {
             burst_serial_send(response, length);
             return true;
         }
-        unsigned baud = !strcmp(line, "BAUD 1000000") ? 1000000 :
-                        !strcmp(line, "BAUD 2000000") ? 2000000 : 0;
+        unsigned baud = !strcmp(line, "BAUD 1000000") ? 1000000 : !strcmp(line, "BAUD 2000000") ? 2000000 : 0;
         if (!baud) {
-            burst_serial_send("ERR baud_args\n", sizeof("ERR baud_args\n")-1);
+            burst_serial_send("ERR baud_args\n", sizeof("ERR baud_args\n") - 1);
             return true;
         }
         int length = snprintf(response, sizeof(response), "OK BAUD %u\n", baud);
@@ -65,16 +64,18 @@ static bool baud_command(const char *line) {
         return true;
     }
 #endif
-    burst_serial_send("ERR baud_transport\n", sizeof("ERR baud_transport\n")-1);
+    burst_serial_send("ERR baud_transport\n", sizeof("ERR baud_transport\n") - 1);
     return true;
 }
 
 #if CONFIG_IDF_TARGET_ESP32S2
-static void usb_ready(void *arg) { (void)arg; }
+static void usb_ready(void *arg) {
+    (void)arg;
+}
 #endif
 void burst_serial_init(void) {
 #if CONFIG_IDF_TARGET_ESP32S2
-    ESP_ERROR_CHECK(esp_usb_console_set_cb(usb_ready,usb_ready,NULL));
+    ESP_ERROR_CHECK(esp_usb_console_set_cb(usb_ready, usb_ready, NULL));
 #endif
 #if CONFIG_ESP_SDR_UART_ENABLED
     uart_baud = CONFIG_ESP_SDR_UART_BAUD;
@@ -87,9 +88,8 @@ void burst_serial_init(void) {
         .source_clk = UART_SCLK_DEFAULT,
     };
     ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &config));
-    ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, CONFIG_ESP_SDR_UART_TX_PIN,
-                                CONFIG_ESP_SDR_UART_RX_PIN,
-                                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, CONFIG_ESP_SDR_UART_TX_PIN, CONFIG_ESP_SDR_UART_RX_PIN,
+                                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
     /* Interrupt-driven RX keeps uploads buffered while the command is parsed.
      * TX uses the FIFO directly so all waits have a bounded deadline. */
     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 8192, 0, 0, NULL, 0));
@@ -98,7 +98,9 @@ void burst_serial_init(void) {
     burst_gpio_init();
 }
 
-burst_serial_port_t burst_serial_port(void) { return active_port; }
+burst_serial_port_t burst_serial_port(void) {
+    return active_port;
+}
 unsigned burst_serial_baud(void) {
     return active_port == BURST_SERIAL_UART ? uart_baud : 0;
 }
@@ -114,17 +116,18 @@ static int read_port(burst_serial_port_t port, void *buffer, size_t size) {
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
     return usb_serial_jtag_ll_read_rxfifo(buffer, size > 64 ? 64 : size);
 #elif CONFIG_IDF_TARGET_ESP32S2
-    return esp_usb_console_read_buf(buffer,size);
+    return esp_usb_console_read_buf(buffer, size);
 #else
     return 0;
 #endif
 }
 
 bool burst_serial_stop_requested(void) {
-    char c; bool stopped=false;
-    for(unsigned j=0;j<128 && read_port(active_port,&c,1)==1;j++) {
-        stopped=true;
-        if(c=='\n') break;
+    char c;
+    bool stopped = false;
+    for (unsigned j = 0; j < 128 && read_port(active_port, &c, 1) == 1; j++) {
+        stopped = true;
+        if (c == '\n') break;
     }
     return stopped;
 }
@@ -146,7 +149,8 @@ int burst_serial_poll_line(char *line, size_t capacity) {
             if (ch != '\n') {
                 if (input[port].used < COMMAND_SIZE - 1)
                     input[port].line[input[port].used++] = ch;
-                else input[port].overflow = true;
+                else
+                    input[port].overflow = true;
                 continue;
             }
             size_t used = input[port].used;
@@ -169,30 +173,30 @@ int burst_serial_poll_line(char *line, size_t capacity) {
 static int64_t transfer_deadline(size_t size) {
     /* 8N1 needs ten wire bits per byte. Leave two seconds for host scheduling,
      * including full frames at a deliberately reduced UART baud rate. */
-    int64_t timeout = active_port == BURST_SERIAL_UART
-        ? 2000000 + (int64_t)size * 10000000 / uart_baud
-        : 3000000;
+    int64_t timeout =
+        active_port == BURST_SERIAL_UART ? 2000000 + (int64_t)size * 10000000 / uart_baud : 3000000;
     return esp_timer_get_time() + timeout;
 }
 
 size_t burst_serial_try_send(const void *data, size_t size) {
-    const uint8_t *p=data;size_t done=0;
-    while(done<size){
-        int sent=0;
-        if(active_port==BURST_SERIAL_UART){
-            sent=uart_tx_chars(UART_NUM_0,(const char *)p+done,size-done>128?128:size-done);
-        }else{
+    const uint8_t *p = data;
+    size_t done = 0;
+    while (done < size) {
+        int sent = 0;
+        if (active_port == BURST_SERIAL_UART) {
+            sent = uart_tx_chars(UART_NUM_0, (const char *)p + done, size - done > 128 ? 128 : size - done);
+        } else {
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
-            if(!usb_serial_jtag_ll_txfifo_writable())break;
-            sent=usb_serial_jtag_ll_write_txfifo(p+done,size-done>64?64:size-done);
+            if (!usb_serial_jtag_ll_txfifo_writable()) break;
+            sent = usb_serial_jtag_ll_write_txfifo(p + done, size - done > 64 ? 64 : size - done);
             usb_serial_jtag_ll_txfifo_flush();
 #elif CONFIG_IDF_TARGET_ESP32S2
-            sent=esp_usb_console_write_buf((const char *)p+done,size-done>64?64:size-done);
-            if(sent>0)esp_usb_console_flush();
+            sent = esp_usb_console_write_buf((const char *)p + done, size - done > 64 ? 64 : size - done);
+            if (sent > 0) esp_usb_console_flush();
 #endif
         }
-        if(sent<=0)break;
-        done+=(unsigned)sent;
+        if (sent <= 0) break;
+        done += (unsigned)sent;
     }
     return done;
 }
@@ -215,10 +219,12 @@ bool IRAM_ATTR burst_serial_send(const void *data, size_t size) {
             usb_serial_jtag_ll_txfifo_flush();
 #elif CONFIG_IDF_TARGET_ESP32S2
 
-            sent=esp_usb_console_write_buf((const char *)p,size>64?64:size);
-            if(sent<0)return false;
-            if(!sent)taskYIELD();
-            else esp_usb_console_flush();
+            sent = esp_usb_console_write_buf((const char *)p, size > 64 ? 64 : size);
+            if (sent < 0) return false;
+            if (!sent)
+                taskYIELD();
+            else
+                esp_usb_console_flush();
 #else
             return false;
 #endif

@@ -28,7 +28,7 @@
 /* Opening the diagnostic producer briefly also enables the TCM writer.
  * Reserve its entire upper aperture; the ongoing sample path is independent. */
 SOC_RESERVE_MEMORY_REGION(0x2f060000, 0x2f07f170, stream_rf_dump);
-#define DMA_NODE 4032u
+#define DMA_NODE  4032u
 #define DMA_NODES 8u
 #define DMA_BYTES (DMA_NODE * DMA_NODES)
 static const int pins[16] = {20, 21, 22, 23, 24, 25, 33, 34, 36, 37, 38, 39, 40, 42, 43, 44};
@@ -54,8 +54,7 @@ void receiver_transport_lost(stream_owner_t owner) {
     uint32_t expected = owner;
     __atomic_compare_exchange_n(&stream_owner, &expected, STREAM_IDLE, false, __ATOMIC_ACQ_REL,
                                 __ATOMIC_ACQUIRE);
-    if (capture_task)
-        xTaskNotifyGive(capture_task);
+    if (capture_task) xTaskNotifyGive(capture_task);
 }
 stream_packet_t *stream_ring;
 uint32_t stream_head, stream_tail, stream_epoch, stream_owner;
@@ -154,8 +153,8 @@ static void IRAM_ATTR diagnostic_start(void) {
     REG_SET_BIT(0x20109c10, BIT(31));
     REG_CLR_BIT(0x20109c10, BIT(31));
     REG_WRITE(0x20109008, (REG_READ(0x20109008) & ~0x01fe0000u) | (3u << 17));
-    REG_WRITE(0x20109018, (REG_READ(0x20109018) & ~0xffffffu) | 24 | (25 << 6) | (26 << 12) |
-                              (27 << 18) | BIT(24));
+    REG_WRITE(0x20109018,
+              (REG_READ(0x20109018) & ~0xffffffu) | 24 | (25 << 6) | (26 << 12) | (27 << 18) | BIT(24));
     unsigned ctrl = (REG_READ(0x20109004) & ~0x803fffffu) | 16383 | BIT(17);
     REG_WRITE(0x20109004, ctrl | BIT(18));
     REG_WRITE(0x20109004, ctrl);
@@ -167,15 +166,13 @@ static void IRAM_ATTR diagnostic_start(void) {
     REG_WRITE(0x20107c04, REG_READ(0x20107c04) & ~(0xffu | BIT(30)));
     REG_WRITE(HP_SYSTEM_MODEM_DIAG_EN_REG, UINT32_MAX);
     REG_WRITE(0x20109004, ctrl | BIT(31));
-    for (volatile unsigned j = 0; j < 64; j++)
-        __asm__ volatile("nop");
+    for (volatile unsigned j = 0; j < 64; j++) __asm__ volatile("nop");
     REG_WRITE(HP_SYSTEM_TCM_DATA_DUMP_CTRL_REG, 0);
     __asm__ volatile("fence" ::: "memory");
     taskEXIT_CRITICAL(&gate_mux);
     esp_ipc_isr_release_other_cpu();
 }
-static bool IRAM_ATTR dma_done(parlio_rx_unit_handle_t u, const parlio_rx_event_data_t *e,
-                               void *arg) {
+static bool IRAM_ATTR dma_done(parlio_rx_unit_handle_t u, const parlio_rx_event_data_t *e, void *arg) {
     (void)u;
     (void)arg;
     uint32_t h = stream_load(&event_head);
@@ -201,24 +198,35 @@ static bool dc_measure(float mean[2]) {
     int64_t deadline = settled + 50000;
     while (count < 16384 && esp_timer_get_time() < deadline) {
         unsigned h = stream_load(&event_head);
-        if (h == tail) { ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1)); continue; }
+        if (h == tail) {
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1));
+            continue;
+        }
         if (h - tail >= DMA_NODES - 1) tail = h - 1;
         unsigned bytes = events[tail % DMA_NODES].bytes;
         const int8_t *data = (const int8_t *)events[tail % DMA_NODES].data;
-        int si = 0, sq = 0; unsigned n = 0;
+        int si = 0, sq = 0;
+        unsigned n = 0;
         /* Sample every pair: periodic sparse taps can alias a test tone into
          * the DC estimate. Full sums also average packet/clock artifacts. */
         if (bytes <= 4092 && !(bytes & 1))
-            for (unsigned j = 0; j < bytes; j += 2) { si += data[j]; sq += data[j+1]; n++; }
+            for (unsigned j = 0; j < bytes; j += 2) {
+                si += data[j];
+                sq += data[j + 1];
+                n++;
+            }
         if (esp_timer_get_time() >= settled && stream_load(&event_head) - tail < DMA_NODES - 1) {
-            sum_i += si; sum_q += sq; count += n;
+            sum_i += si;
+            sum_q += sq;
+            count += n;
         }
         tail++;
     }
     ESP_ERROR_CHECK(parlio_rx_soft_delimiter_start_stop(unit, delimiter, false));
     ESP_ERROR_CHECK(parlio_rx_unit_disable(unit));
     if (count < 16384) return false;
-    mean[0] = (float)sum_i / count; mean[1] = (float)sum_q / count;
+    mean[0] = (float)sum_i / count;
+    mean[1] = (float)sum_q / count;
     return true;
 }
 static void capture_loop(void *arg) {
@@ -246,8 +254,8 @@ static void capture_loop(void *arg) {
             radio_configure(&cmd.config);
             diagnostic_start();
             uint32_t hz = 0;
-            ESP_ERROR_CHECK(esp_clk_tree_src_get_freq_hz(
-                PARLIO_CLK_SRC_DEFAULT, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &hz));
+            ESP_ERROR_CHECK(esp_clk_tree_src_get_freq_hz(PARLIO_CLK_SRC_DEFAULT,
+                                                         ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &hz));
             hal_utils_clk_info_t info = {.src_freq_hz = hz,
                                          .exp_freq_hz = cmd.config.rate,
                                          .max_integ = PARLIO_LL_RX_MAX_CLK_INT_DIV,
@@ -321,8 +329,7 @@ static void capture_loop(void *arg) {
         /* An unfinished packet occupies a slot too. Account for the actual
          * descriptor length rather than assuming a fixed packet count. */
         unsigned slots = (partial + bytes + STREAM_PAYLOAD - 1) / STREAM_PAYLOAD;
-        if (bytes > 4092 || (bytes & 1) || slots > STREAM_RING ||
-            out - read > STREAM_RING - slots) {
+        if (bytes > 4092 || (bytes & 1) || slots > STREAM_RING || out - read > STREAM_RING - slots) {
             stream_record_drop(bytes / 2 + partial / 2, STREAM_DROP_RING);
             partial = 0;
             consumed = sample + bytes / 2;
@@ -345,8 +352,7 @@ static void capture_loop(void *arg) {
                 p->time_us = start_us + p->sample / (p->rate / 1000000u);
             }
             unsigned n = STREAM_PAYLOAD - partial;
-            if (n > bytes - copied)
-                n = bytes - copied;
+            if (n > bytes - copied) n = bytes - copied;
             memcpy(p->iq + partial, data + copied, n);
             partial += n;
             copied += n;
@@ -361,20 +367,18 @@ static void capture_loop(void *arg) {
             out = first_out;
         }
         stream_store(&stream_head, out);
-        if (out != first_out)
-            stream_wake_sender();
+        if (out != first_out) stream_wake_sender();
         consumed = sample + bytes / 2;
         tail++;
     }
 }
 void receiver_init(void) {
-    stream_ring = heap_caps_aligned_alloc(64, STREAM_RING * sizeof(*stream_ring),
-                                          MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    stream_ring =
+        heap_caps_aligned_alloc(64, STREAM_RING * sizeof(*stream_ring), MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
     dma_buffer = heap_caps_aligned_alloc(64, DMA_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
     assert(stream_ring && dma_buffer);
     uint64_t mask = 0;
-    for (unsigned i = 0; i < 16; i++)
-        mask |= 1ull << pins[i];
+    for (unsigned i = 0; i < 16; i++) mask |= 1ull << pins[i];
     gpio_config_t gp = {.pin_bit_mask = mask, .mode = GPIO_MODE_INPUT_OUTPUT};
     ESP_ERROR_CHECK(gpio_config(&gp));
     parlio_rx_unit_config_t pc = {.trans_queue_depth = 1,
@@ -386,8 +390,7 @@ void receiver_init(void) {
                                   .clk_in_gpio_num = -1,
                                   .clk_out_gpio_num = -1,
                                   .valid_gpio_num = -1};
-    for (unsigned bit = 0; bit < 16; bit++)
-        pc.data_gpio_nums[bit] = pins[bit ^ 8];
+    for (unsigned bit = 0; bit < 16; bit++) pc.data_gpio_nums[bit] = pins[bit ^ 8];
     ESP_ERROR_CHECK(parlio_new_rx_unit(&pc, &unit));
     for (unsigned bit = 0; bit < 16; bit++) {
         unsigned signal = bit < 6    ? HP_PROBE_TOP_OUT0_IDX + bit + 2
@@ -415,8 +418,7 @@ void receiver_init(void) {
     commands = xQueueCreate(1, sizeof(command_t));
     replies = xQueueCreate(1, sizeof(esp_err_t));
     assert(commands && replies);
-    BaseType_t created =
-        xTaskCreatePinnedToCore(capture_loop, "capture", 6144, NULL, 22, &capture_task, 1);
+    BaseType_t created = xTaskCreatePinnedToCore(capture_loop, "capture", 6144, NULL, 22, &capture_task, 1);
     ESP_ERROR_CHECK(created == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
     receiver_apply(&receiver_config, STREAM_IDLE);
 }

@@ -36,9 +36,8 @@ bool rx_recalibration_stale(void) {
 #if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2
     _lock_t lock = phy_get_lock();
     _lock_acquire(&lock);
-    bool stale = !calibrated ||
-        memcmp(phy_rxbb_dc, calibrated_rxbb_dc, RXBB_DC_BYTES) ||
-        memcmp(phy_rxrf_dc, calibrated_rxrf_dc, RXRF_DC_BYTES);
+    bool stale = !calibrated || memcmp(phy_rxbb_dc, calibrated_rxbb_dc, RXBB_DC_BYTES) ||
+                 memcmp(phy_rxrf_dc, calibrated_rxrf_dc, RXRF_DC_BYTES);
 #if CONFIG_IDF_TARGET_ESP32S2
     stale = stale || memcmp(phy_chan_dc, calibrated_chan_dc, sizeof(calibrated_chan_dc));
 #endif
@@ -99,8 +98,10 @@ void __wrap_set_rx_gain_cal_dc(uintptr_t a) {
     atomic_fetch_add(&dc_generation, 1);
 }
 #elif CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3
-extern void __real_set_rx_gain_cal_dc(uintptr_t a, uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e, uintptr_t f, uintptr_t g, uintptr_t h, uintptr_t i, uintptr_t j);
-void __wrap_set_rx_gain_cal_dc(uintptr_t a, uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e, uintptr_t f, uintptr_t g, uintptr_t h, uintptr_t i, uintptr_t j) {
+extern void __real_set_rx_gain_cal_dc(uintptr_t a, uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e,
+                                      uintptr_t f, uintptr_t g, uintptr_t h, uintptr_t i, uintptr_t j);
+void __wrap_set_rx_gain_cal_dc(uintptr_t a, uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e, uintptr_t f,
+                               uintptr_t g, uintptr_t h, uintptr_t i, uintptr_t j) {
     __real_set_rx_gain_cal_dc(a, b, c, d, e, f, g, h, i, j);
     atomic_fetch_add(&dc_generation, 1);
 }

@@ -7,13 +7,13 @@
 
 /* Little-endian on the wire. One datagram is one complete packet; USB uses
  * the identical packets back-to-back. No transport-specific sample framing. */
-#define STREAM_VERSION 2
-#define STREAM_PAYLOAD 1344
-#define STREAM_SAMPLES (STREAM_PAYLOAD / 2)
-#define STREAM_RING 32
+#define STREAM_VERSION   2
+#define STREAM_PAYLOAD   1344
+#define STREAM_SAMPLES   (STREAM_PAYLOAD / 2)
+#define STREAM_RING      32
 #define STREAM_USB_BATCH 16
-#define STREAM_USB_VID 0x303a
-#define STREAM_USB_PID 0x4531
+#define STREAM_USB_VID   0x303a
+#define STREAM_USB_PID   0x4531
 
 typedef struct __attribute__((packed)) {
     char magic[4];

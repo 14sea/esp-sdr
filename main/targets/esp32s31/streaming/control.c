@@ -17,8 +17,7 @@ void stream_record_drop(uint64_t samples, stream_drop_t reason) {
 }
 void stream_wake_sender(void) {
     TaskHandle_t task = __atomic_load_n(&sender_task, __ATOMIC_ACQUIRE);
-    if (task)
-        xTaskNotifyGive(task);
+    if (task) xTaskNotifyGive(task);
 }
 static cJSON *error(const char *message) {
     cJSON *r = cJSON_CreateObject();
@@ -69,14 +68,11 @@ static cJSON *status(void) {
 static bool number(const cJSON *obj, const char *key, uint32_t *value, uint32_t low, uint32_t high,
                    uint32_t step) {
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(obj, key);
-    if (!v)
-        return true;
-    if (!cJSON_IsNumber(v) || !isfinite(v->valuedouble) || v->valuedouble < low ||
-        v->valuedouble > high)
+    if (!v) return true;
+    if (!cJSON_IsNumber(v) || !isfinite(v->valuedouble) || v->valuedouble < low || v->valuedouble > high)
         return false;
     uint32_t n = (uint32_t)v->valuedouble;
-    if (n != v->valuedouble || (n - low) % step)
-        return false;
+    if (n != v->valuedouble || (n - low) % step) return false;
     *value = n;
     return true;
 }
@@ -85,11 +81,9 @@ void control_init(void) {
     assert(control_mutex);
 }
 cJSON *control_request(const cJSON *request, stream_owner_t caller, const char *peer) {
-    if (!cJSON_IsObject(request))
-        return error("Expected a JSON object");
+    if (!cJSON_IsObject(request)) return error("Expected a JSON object");
     const cJSON *op = cJSON_GetObjectItemCaseSensitive(request, "op");
-    if (!cJSON_IsString(op))
-        return error("Missing operation");
+    if (!cJSON_IsString(op)) return error("Missing operation");
     xSemaphoreTake(control_mutex, portMAX_DELAY);
     cJSON *r = NULL;
     receiver_config_t cfg = receiver_config;
@@ -106,8 +100,8 @@ cJSON *control_request(const cJSON *request, stream_owner_t caller, const char *
              !number(request, "rate", &cfg.rate, 1000000, 40000000, 1) ||
              !number(request, "bandwidth", &cfg.bandwidth, 0, 54000000, 1000000) ||
              (cfg.bandwidth && cfg.bandwidth < 13000000) ||
-             (cfg.rate != 4000000 && cfg.rate != 8000000 && cfg.rate != 16000000 &&
-              cfg.rate != 20000000 && cfg.rate != 40000000))
+             (cfg.rate != 4000000 && cfg.rate != 8000000 && cfg.rate != 16000000 && cfg.rate != 20000000 &&
+              cfg.rate != 40000000))
         r = error("Unsupported receiver setting");
     else {
         if (!strcmp(op->valuestring, "start")) {
@@ -120,8 +114,7 @@ cJSON *control_request(const cJSON *request, stream_owner_t caller, const char *
                     r = error("Invalid UDP destination");
             } else if (!usb_ready())
                 r = error("USB is not connected at high speed");
-            if (!r)
-                owner = caller;
+            if (!r) owner = caller;
         } else if (!strcmp(op->valuestring, "stop")) {
             if (owner != STREAM_IDLE && owner != caller)
                 r = error("Receiver is owned by the other transport");
@@ -158,24 +151,21 @@ void stream_sender(void *arg) {
                 ok = network_send(p);
             else {
                 unsigned batch = STREAM_USB_BATCH;
-                if (batch > STREAM_RING - (t % STREAM_RING))
-                    batch = STREAM_RING - (t % STREAM_RING);
+                if (batch > STREAM_RING - (t % STREAM_RING)) batch = STREAM_RING - (t % STREAM_RING);
                 if (h - t < batch && stream_ring[(h - 1) % STREAM_RING].epoch == p->epoch) {
                     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2));
                     continue;
                 }
-                while (count < STREAM_USB_BATCH && count < h - t &&
-                       (t % STREAM_RING) + count < STREAM_RING && p[count].epoch == p->epoch)
+                while (count < STREAM_USB_BATCH && count < h - t && (t % STREAM_RING) + count < STREAM_RING &&
+                       p[count].epoch == p->epoch)
                     count++;
                 ok = usb_send_and_retire(p, count * sizeof(*p), t + count);
             }
-            if (!ok)
-                stream_record_drop(count * STREAM_SAMPLES, STREAM_DROP_TRANSPORT);
+            if (!ok) stream_record_drop(count * STREAM_SAMPLES, STREAM_DROP_TRANSPORT);
         }
         /* USB already releases after copying; this also covers failures
          * before the copy, discarded epochs, and the Ethernet path. */
         stream_store(&stream_tail, t + count);
-        if (!ok)
-            vTaskDelay(1);
+        if (!ok) vTaskDelay(1);
     }
 }
