@@ -22,8 +22,7 @@
 #include "esp_private/startup_internal.h"
 #include "soc/periph_defs.h"
 #include "soc/rtc_cntl_reg.h"
-#include "soc/usb_struct.h"
-#include "soc/usb_reg.h"
+#include "soc/usb_dwc_struct.h"
 #include "hal/soc_hal.h"
 #include "esp_rom_serial_output.h"
 #include "esp_rom_sys.h"
@@ -242,7 +241,7 @@ void esp_usb_console_on_restart_timeout(void *arg)
 void esp_usb_console_poll_interrupts(void)
 {
     const int max_poll_count = 10;
-    for (int i = 0; (USB0.gintsts & USB0.gintmsk) != 0 && i < max_poll_count; i++) {
+    for (int i = 0; (USB_DWC.gintsts_reg.val & USB_DWC.gintmsk_reg.val) != 0 && i < max_poll_count; i++) {
         usb_dc_check_poll_for_interrupts();
     }
 }
@@ -324,7 +323,7 @@ esp_err_t esp_usb_console_init(void)
     usb_dfu_set_detach_cb(esp_usb_console_dfu_detach_cb);
 
     /* Enable interrupts on USB peripheral side */
-    USB0.gahbcfg |= USB_GLBLLNTRMSK_M;
+    USB_DWC.gahbcfg_reg.glbllntrmsk = 1;
 
     /* Enable the interrupt handler */
     esp_intr_enable(s_usb_int_handle);
