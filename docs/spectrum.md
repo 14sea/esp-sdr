@@ -120,72 +120,55 @@ stationary signal exactly at the LO. The viewer's offset-LO setting moves the
 frequency of interest away from this correction; “fill DC bins” only changes
 the display. Raw I/Q captures retain their original behavior.
 
-## Implementation constraints
+## How each chip computes spectra
 
-S3 uses three SRAM banks and a bare second-core worker for SIMD unpacking,
-FFT, power accumulation and encoding. Core 0 owns bank rotation and USB and
-assists with FFTs when its deadline permits. Bank revocation waits for active
-readers before giving SRAM back to the RF writer. DC state has one owner.
-`DUAL 0` selects the single-core fallback, `DUAL 1` enables the worker with
-assistance (default), and `DUAL 2` disables assistance. `DUAL?` returns the
-active mode and whether the worker booted; re-query `SPECINFO?` after changing
-modes. The fallback splits FFTs into radix-2 stages, with bounded unpacking,
-accumulation and checksum slices. Both paths support 256/512/1024/2048 bins
-at 16/40/80 MS/s. The capture scheduler and SIMD kernel
-run from internal RAM to avoid flash-cache delays. C6 and C61 use two banks
-with scalar FFT work split into short slices. These bank-rotation runs mask interrupts;
-their firmware profiles disable interrupt/task watchdogs, as required by this
-architecture. A stalled host ends the acquisition through the stream timeout.
-C3 uses snapshots at every FFT size: CPU reads while RF owns its SRAM return
-a repeating four-word bus pattern, producing false spectral peaks. It stops
-the dump and restores CPU ownership before processing genuine samples. Its
-watchdog settings remain enabled.
-All scalar FFT input copies are independent of subsequent RF writes. C6/C61
-warm the FFT, checksum and statistics paths before starting RF capture, then
-budget each processing stage separately. Their 256-sample windows are copied
-in one bounded operation before the bank can be reclaimed.
+**Snapshot chips (ESP32, S2, C2, C3, C5, H2):** capture a burst, stop the
+dump engine, give the SRAM back to the CPU, then run the FFTs. There is a gap
+in the RF data while this happens. The C3 has to work this way at every FFT
+size: while the dump engine owns its SRAM, CPU reads return a repeating
+four-word pattern, which would show up as false peaks.
 
-The portable snapshot backend computes power and peak accumulation in integer
-arithmetic; mean accumulation retains floating-point precision. Both detectors
-reuse the same workspace, and FFT bin ordering is updated incrementally without
-an additional index table. The scalar butterflies use 32-bit modular sums with
-the same output bits and rounding as their former 64-bit arithmetic.
+**C6 and C61:** the dump engine keeps writing a ring of two SRAM banks. While
+it fills one bank, the CPU copies a 256-sample window out of the other in one
+bounded step and runs a scalar FFT on it in short slices. The FFT, checksum and
+statistics code is warmed up before capture starts.
 
-S31 rotates two complete 128 KiB SRAM ownership groups without stopping the RF
-writer. Core 0 validates exact bank boundaries and handles USB; core 1 runs
-RISC-V SIMD unpacking, Hann windowing and rounded FFTs. The worker relinquishes
-each bank before RF reuse, and skips work that cannot meet that deadline.
-Its code, buffers and stack reside in internal SRAM. Interrupt/task watchdogs
-are disabled for the continuous capture scheduler, with bounded capture and
-host-stall timeouts. Snapshot and continuous modes share their FFT workspace.
+**S3:** a ring of three banks. Core 1 runs a bare-metal worker that unpacks
+samples with SIMD instructions, computes FFTs, accumulates power and encodes
+frames. Core 0 rotates the banks, feeds USB, and helps with FFTs when it has
+time. A bank is only handed back to the dump engine once nobody is reading it.
+`DUAL 0` runs everything on core 0, `DUAL 1` (default) uses the worker with
+core 0 helping, `DUAL 2` uses the worker alone; `DUAL?` reports the mode and
+whether the worker started. Query `SPECINFO?` again after changing it.
 
-ESP32, S2, C2, C3, C5 and H2 use snapshot FFTs because a safe continuous
-processing path has not been established. Shared spectrum processing and
-statistics work on all supported targets. Large transforms can skip
-substantial processing work; the stream counters report it.
+**S31:** two 128 KiB groups of SRAM banks rotate without stopping the dump
+engine. Core 0 checks bank boundaries and handles USB; core 1 does SIMD
+unpacking, windowing and FFTs, and skips work it cannot finish before the
+bank is reused.
 
-## Validation
+The continuous modes mask interrupts while they run and therefore disable the
+interrupt and task watchdogs in those firmware profiles; capture and host-stall
+timeouts end a run instead. Their hot code and buffers live in internal RAM to
+avoid flash-cache stalls. When processing can't keep up, work is skipped and
+counted (`abandoned` in the end report, `SPS1` statistics), never silently
+dropped.
 
-All advertised rate/FFT/detector combinations were checked on ESP32, C3, C5,
-C6, C61, S2, S3 and S31, using UART on ESP32 and native USB on the others.
-Checks covered frame CRCs, command access after capture, host stops, recovery
-from reader stalls, and switching modes in the browser. S3 single-core, worker-only and assisted profiles are checked separately.
-Alternate UART wiring
-on the native-USB boards was not tested. Continuous capture was checked using
-hardware indices and bank boundaries, not calibrated RF phase coherence.
+The shared snapshot code accumulates power and peak values in integer
+arithmetic (mean accumulation in floating point), and both detectors share
+one workspace.
 
-S31 SIMD unpacking matched scalar conversion across 32,768 samples and all
-word alignments. Its rounded FFT matched the scalar reference within three
-output counts for zero, tone and Hann-windowed random inputs at all four sizes.
-These checks caught and corrected a vendor-derived final-stage loop that
-skipped eight samples. All 48 S31 rate/size/detector combinations passed CRC
-and sustained-output checks, followed by overload, long-averaging, stop,
-reader-stall/reconnect and browser mode-switching checks.
+## Testing
 
-To repeat the profile check on an attached board, install `pyserial` and run:
+`tools/check_spectrum.py` runs every advertised profile with both detectors on
+an attached board, checks frame CRCs, end reports and command access
+afterwards, and prints a JSON report:
 
 ```sh
 python tools/check_spectrum.py --port /dev/ttyACM2 --milliseconds 3000 --stats
 ```
 
-The tool does not flash firmware and emits a JSON report.
+All profiles pass on ESP32, C2, C3, C5, C6, C61, H2, S2, S3 and S31 over every
+interface each chip offers. Continuous capture is verified with hardware sample
+indices and bank boundaries, not with RF phase measurements. The S31's SIMD
+unpacking and FFT were also checked against a scalar reference (within three
+output counts for zero, tone and random inputs at all sizes).
