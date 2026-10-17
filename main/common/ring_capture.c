@@ -428,6 +428,7 @@ IRAM_ATTR static void spec_remove_dc(void) {
     dc_track(fft_buf);
 }
 
+#if CONFIG_IDF_TARGET_ESP32S3
 IRAM_ATTR static void spec_accumulate(bool max_hold, unsigned from, unsigned to) {
     const int16_t *x = fft_buf + 2 * from;
     if (max_hold) {
@@ -444,6 +445,7 @@ IRAM_ATTR static void spec_accumulate(bool max_hold, unsigned from, unsigned to)
         }
     }
 }
+#endif
 
 /* ---- run ---------------------------------------------------------------- */
 
@@ -570,6 +572,7 @@ _Static_assert(RING_SPEC_NFFT_MAX == 256, "Revalidate scalar copy timing before 
 #include "ring_scalar.h"
 #endif
 
+#if CONFIG_IDF_TARGET_ESP32S3
 /* Close the accumulating frame; its bins are encoded by emit_chunk(). */
 static void emit_chunk(void);
 RING_HOT static void frame_close(void) {
@@ -639,9 +642,7 @@ RING_HOT static void emit_chunk(void) {
         st.dropped = true;
     }
     st.emitting = false;
-#if CONFIG_IDF_TARGET_ESP32S3
     if (st.cfg->stats) stats_maybe(false);
-#endif
 }
 
 /* Retire a bank before RF reuses it. Once unpacking is complete the FFT owns
@@ -667,12 +668,11 @@ RING_HOT static void unit_done(void) {
         st.frame_gain = w->gain;
     }
     st.frame_pairs += w->count;
-#if CONFIG_IDF_TARGET_ESP32S3
     sx.pairs_done += w->count;
-#endif
     /* Emit a fresh batch as soon as the previous output has drained. */
     if (++st.frame_units && st.phase == BLK_IDLE && st.frame_ffts && txq_head == txq_tail) frame_close();
 }
+#endif
 
 #if CONFIG_IDF_TARGET_ESP32S3
 /* ---- IQ streaming (IQS1) ------------------------------------------------
@@ -1025,6 +1025,7 @@ RING_HOT static void release_bank(unsigned b) {
     (void)b;
 }
 
+#if CONFIG_IDF_TARGET_ESP32S3
 /* One work slice; returns false when there is nothing to do. */
 RING_HOT static bool work_slice(void) {
     uint32_t t0 = esp_cpu_get_cycle_count();
@@ -1074,6 +1075,7 @@ RING_HOT static bool work_slice(void) {
     if (dt > st.res->work_max) st.res->work_max = dt;
     return true;
 }
+#endif
 
 #if CONFIG_IDF_TARGET_ESP32S3
 /* ---- core 1 SPEC worker ------------------------------------------------- */

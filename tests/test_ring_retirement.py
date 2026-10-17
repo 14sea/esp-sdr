@@ -11,8 +11,9 @@ class RingRetirement(unittest.TestCase):
     @unittest.skipUnless(shutil.which('cc'), 'Host C compiler unavailable')
     def test_retirement_at_each_processing_phase(self):
         src=(ROOT/'main/common/ring_capture.c').read_text()
-        unit=src[src.index('RING_HOT static void unit_done('):src.index('/* Bank b is about to')]
-        work=src[src.index('RING_HOT static bool work_slice('):src.index('RING_HOT static void fail(')]
+        # Both are S3-only: each excerpt ends with the #endif of its guard.
+        unit='#if 1\n'+src[src.index('RING_HOT static void unit_done('):src.index('/* Bank b is about to')]
+        work='#if 1\n'+src[src.index('RING_HOT static bool work_slice('):src.index('RING_HOT static void fail(')]
         harness=r'''
 #include <stdbool.h>
 #include <stdint.h>
@@ -26,6 +27,7 @@ enum { BLK_IDLE, BLK_UNPACK, BLK_FFT, BLK_ACCUM };
 typedef struct {bool pending;unsigned first,count,next_block,blocks;uint64_t index;uint8_t gain;} work_t;
 static struct {unsigned stride,units_per_frame;bool max_hold;} cfg={1,1,false};
 static struct {unsigned abandoned,ffts,work_max;} result;
+static struct {uint64_t pairs_done;} sx;
 static struct {
  typeof(cfg)*cfg;typeof(result)*res;work_t work[3];unsigned fifo[3],fifo_len;
  unsigned frame_units,frame_ffts,frame_pairs,frame_flags,frame_gain;uint64_t frame_index;
