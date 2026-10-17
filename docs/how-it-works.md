@@ -124,8 +124,8 @@ signal in the receiver's passband, not just Wi-Fi.
 ## Continuous capture (ring mode)
 
 A snapshot has to stop the receiver so the CPU can read the bank. For
-continuous spectra (C6, C61, S3, S31 over native USB) and the S3's continuous
-I/Q stream, the dump engine runs in **circular mode** instead
+spectra with continuous capture (C6, C61, S3, S31 over native USB) and the
+S3's continuous I/Q stream, the dump engine runs in **circular mode** instead
 (`main/common/ring_capture.c`):
 
 - A control bit (`DUMP_CTRL_CIRCULAR`) makes the engine wrap around a

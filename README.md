@@ -38,24 +38,26 @@ with [SoapyESPSDR](https://github.com/ESPARGOS/SoapyESPSDR), or an ESP32-S3 with
 | ESP32-C2 | ✅ | — | GPIO20 / GPIO19 | 80, 40, 16 | 26 MHz crystal; rebuild for 40 MHz |
 | ESP32-C3 | ✅ | Serial/JTAG | GPIO21 / GPIO20 | 80, 40, 16 | |
 | ESP32-C5 | ✅ | Serial/JTAG | GPIO11 / GPIO12 | 80 … 4 | also receives 5 GHz |
-| ESP32-C6 | ✅ | Serial/JTAG | GPIO16 / GPIO17 | 80, 40, 16 | continuous spectrum¹ (256 bins) |
-| ESP32-C61 | ✅ | Serial/JTAG | GPIO11 / GPIO10 | 80 … 4 | continuous spectrum¹ (256 bins) |
+| ESP32-C6 | ✅ | Serial/JTAG | GPIO16 / GPIO17 | 80, 40, 16 | continuous capture¹ (256 bins) |
+| ESP32-C61 | ✅ | Serial/JTAG | GPIO11 / GPIO10 | 80 … 4 | continuous capture¹ (256 bins) |
 | ESP32-H2 | ✅ | Serial/JTAG | GPIO24 / GPIO23 | 32, 16, 10.667, 6.4 | Bluetooth radio, see [esp32h2.md](docs/esp32h2.md) |
 | ESP32-H21 | 🚧 | | | | |
 | ESP32-H4 | 🚧 | | | | |
 | ESP32-P4 | ❌ | | | | no radio |
 | ESP32-S2 | ✅ | USB-OTG CDC | GPIO43 / GPIO44 | 80, 40, 16 | 4 MB flash |
-| ESP32-S3 | ✅ | Serial/JTAG | GPIO43 / GPIO44 | 80, 40, 16 | continuous spectrum¹ and I/Q over USB |
-| ESP32-S31 | ✅ | Serial/JTAG | GPIO58 / GPIO59 | 80 … 4 | continuous spectrum¹; streaming firmware |
+| ESP32-S3 | ✅ | Serial/JTAG | GPIO43 / GPIO44 | 80, 40, 16 | continuous capture¹ and I/Q over USB |
+| ESP32-S31 | ✅ | Serial/JTAG | GPIO58 / GPIO59 | 80 … 4 | continuous capture¹; streaming firmware |
 
 ✅ supported · 🚧 not yet supported · ❌ not possible
 
-¹ **Continuous spectrum** means the chip records the signal without gaps and
-computes FFTs on it as fast as it can, over native USB only. The viewer shows
-how much of the signal was analyzed as *coverage*. This works at 256 FFT bins
-on the C6 and C61, and at all sizes on the S3 and S31. Every other spectrum,
-including all of them over UART, is computed from separate snapshots with
-gaps in between; the viewer then says "Reception has gaps between snapshots".
+¹ **Continuous capture** means the chip records the signal without gaps while
+it computes spectra, over native USB only. It can't FFT all of it: only a
+small share of the signal, often a few percent or less, goes into a
+spectrum. The viewer shows that share as FFT coverage. This mode exists at
+256 FFT bins on the C6 and C61, and at all sizes on the S3 and S31. All other
+spectra, including every spectrum over UART, come from separate snapshots
+with gaps in between; the viewer then says "Reception has gaps between
+snapshots".
 
 All chips accept tuning from 100 to 6000 MHz, but the PLL only locks in a
 limited range around 2.4 GHz (and 5 GHz on the C5). ESP32, C2, C3, S2 and S3
@@ -72,8 +74,8 @@ rates above. This is what the browser viewer uses.
 
 **On-chip spectra** (all chips): the firmware computes 256–2048-bin FFTs and
 sends compact spectra instead of raw samples. On the C6, C61, S3 and S31 over
-native USB, the receiver keeps running between FFTs, so the spectrum is
-(nearly) continuous. See [spectrum.md](docs/spectrum.md). The original S3 Turbo
+native USB, the receiver keeps recording between FFTs (continuous capture¹),
+but only part of the signal is analyzed. See [spectrum.md](docs/spectrum.md). The original S3 Turbo
 Mode was developed by Zoltan Doczi from [Z2Labs](https://www.z2labs.io/).
 
 **Continuous I/Q on the ESP32-S3**: the second core filters and decimates the
