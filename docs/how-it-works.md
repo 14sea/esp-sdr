@@ -114,7 +114,8 @@ CPU can now read the samples.
   upper 8 bits, `CAP20` packs the full 20 bits, and `CAP` sends the raw word.
 - **Bits 20–27** hold the receiver gain index that was active for that sample.
   The firmware copies it into spectrum frame headers so hosts can see what the
-  AGC did.
+  AGC did. With a manual gain it matched the index we set on every Wi-Fi chip;
+  the H2 stores a different code there (114 for index 18).
 
 The I/Q values come straight from the ADC side of the receiver: no Wi-Fi
 filtering or demodulation has happened yet. That is why ESP-SDR can see any
@@ -177,8 +178,7 @@ a "dump mode" register. Those are listed in the chip notes
 ## Things we don't know
 
 - What most other lane-select values record.
-- Whether the gain index in bits 20–27 is exact on every chip, or only on the
-  ones where we compared it with the gain we set.
+- How the H2's code in bits 20–27 relates to its gain index.
 - Why the C3 returns a repeating pattern when the CPU reads a bank the dump
   engine owns.
 - Whether the dump clock dividers apply any filtering. On the S2 and H2 they
