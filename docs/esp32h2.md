@@ -53,7 +53,7 @@ stored in `phy_param[83]` (66 on the tested board). Gain indices are not dB.
 
 The Bluetooth AGC only tracks the signal while the link layer receives
 packets. Left alone during a capture it parks in a fixed state with a large
-DC offset, and a B210 test tone at +2 MHz did not show up at all. So
+DC offset, and a test tone at +2 MHz did not show up at all. So
 `GAIN HARDWARE` on the H2 is a small firmware AGC instead: before each
 capture, up to six 512-sample probes adjust the forced gain until the
 largest I/Q value is between 128 and 448 of 511. On the tested board,

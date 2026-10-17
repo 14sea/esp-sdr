@@ -11,7 +11,7 @@ Protocol 6 advertises `RXLIMITS` in `CAPS`. Query `LIMITS?` after `INFO` for:
 Hardware AGC is the default; manual gain indices are not absolute gain in dB.
 
 The Wi-Fi AGC is built to settle on packet preambles. It does not protect
-the ADC from a strong *continuous* signal: with a B210 tone a few
+the ADC from a strong *continuous* signal: with a test tone a few
 centimetres from the antenna, every Wi-Fi chip clipped in AGC mode (peak at
 full scale), and clipping products buried the tone. Use manual gain for strong
 signals. On the H2, which has no usable AGC for this purpose, `GAIN HARDWARE`
@@ -104,14 +104,13 @@ off-grid frequencies are not rounded to a channel.
 
 ### Measured reception range
 
-A B210 transmitted a CW tone 2 MHz above the LO, over the air, with the
-receiver in its default gain mode. "✓" means the tone was at least 15 dB
+A signal generator transmitted a CW tone 2 MHz above the LO, over the air,
+with the receiver in its default gain mode. "✓" means the tone was at least 15 dB
 above the noise floor (typically 35–70 dB), "–" means it was not received,
 "(weak)" means barely above the threshold (about 19 dB). The S31 received
 well from 2150 MHz.
-Measured with [`tools/rf_tone_check.py`](../tools/rf_tone_check.py),
-one board per chip, in October 2026 (`esp32s2` at 80 MS/s, others at
-their lowest rate of at least 8 MS/s):
+Measured with one board per chip, in October 2026 (`esp32s2` at 80 MS/s,
+others at their lowest rate of at least 8 MS/s):
 
 | Chip | 1850 | 1950 | 2100 | 2200 | 2300–2650 | 2750 | 5180–5800 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
