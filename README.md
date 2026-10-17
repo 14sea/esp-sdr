@@ -36,9 +36,9 @@ with [SoapyESPSDR](https://github.com/ESPARGOS/SoapyESPSDR), or an ESP32-S3 with
 | --- | --- | --- | --- | --- |
 | ESP32 | — | GPIO1 / GPIO3 | 80, 40, 16 | |
 | ESP32-C2 | — | GPIO20 / GPIO19 | 80, 40, 16 | 26 MHz crystal; rebuild for 40 MHz |
-| ESP32-C3 | Serial/JTAG | GPIO21 / GPIO20 | 80 | |
+| ESP32-C3 | Serial/JTAG | GPIO21 / GPIO20 | 80, 40, 16 | |
 | ESP32-C5 | Serial/JTAG | GPIO11 / GPIO12 | 80 … 4 | also receives 5 GHz |
-| ESP32-C6 | Serial/JTAG | GPIO16 / GPIO17 | 80 | continuous spectrum over USB |
+| ESP32-C6 | Serial/JTAG | GPIO16 / GPIO17 | 80, 40, 16 | continuous spectrum over USB |
 | ESP32-C61 | Serial/JTAG | GPIO11 / GPIO10 | 80 … 4 | continuous spectrum over USB |
 | ESP32-H2 | Serial/JTAG | GPIO24 / GPIO23 | 32, 16, 10.667, 6.4 | Bluetooth radio, see [esp32h2.md](docs/esp32h2.md) |
 | ESP32-S2 | USB-OTG CDC | GPIO43 / GPIO44 | 80, 40, 16 | 4 MB flash |
@@ -47,8 +47,9 @@ with [SoapyESPSDR](https://github.com/ESPARGOS/SoapyESPSDR), or an ESP32-S3 with
 
 ESP32-H21 and -H4 are not supported yet; the P4 has no radio. All chips accept
 tuning from 100 to 6000 MHz, but the PLL only locks in a limited range around
-2.4 GHz (and 5 GHz on the C5). ESP32, C2, C3, C6, S2 and S3 reach down to about
-1.84 GHz using a 5/6 LO divider; see [rx-controls.md](docs/rx-controls.md).
+2.4 GHz (and 5 GHz on the C5). ESP32, C2, C3, S2 and S3 reach down to about
+1.85 GHz using a 5/6 LO divider, the C6 to about 1.95 GHz; see
+[rx-controls.md](docs/rx-controls.md).
 
 Snapshots are bursts of up to 16,380 samples (8,190 on the C2 and 12,284 on the
 S2), so there are gaps between them. Gain is not calibrated in dB.
