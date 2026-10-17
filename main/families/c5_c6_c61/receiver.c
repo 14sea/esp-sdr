@@ -235,12 +235,8 @@ static bool ring_test(const char *line) {
 #else
     if (!spec) return false;
 #endif
-    if (ms > 86400000u || rate > 5 || !stride || !upf || det > 1 || stats > 1 || stride > 64 || upf > 1000 ||
-        n != 256
-#if CONFIG_IDF_TARGET_ESP32C6
-        || rate != 0
-#endif
-    ) {
+    if (ms > 86400000u || !ring_capture_rate_hz(rate) || !stride || !upf || det > 1 || stats > 1 ||
+        stride > 64 || upf > 1000 || n != 256) {
         reply("ERR spec_args\n");
         return true;
     }

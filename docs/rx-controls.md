@@ -97,8 +97,7 @@ All burst targets advertise `TUNEEXT` and answer `RANGE?` with
 attempt (`main/common/rx_tuning.h`). Accepting a frequency does not mean the
 PLL locked; the table below shows where reception actually works.
 
-C3 and C6 capture at 80, 40 or 16 MS/s, but the C6's continuous spectrum runs
-at 80 MS/s only. Both divide the dump clock with control bits 15–16 like the S3,
+C3 and C6 capture at 80, 40 or 16 MS/s. Both divide the dump clock with control bits 15–16 like the S3,
 but the encoding differs: on the C3 bit 15 means 40 and bit 16 means 16 MS/s;
 on the C6 the two bits are one field dividing by 1, 2, 3 or 5, so 2 gives
 26.7 MS/s, which has no rate code.

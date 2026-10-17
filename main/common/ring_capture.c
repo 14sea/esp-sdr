@@ -144,7 +144,9 @@ const uint32_t *ring_capture_bank(unsigned b) {
 }
 
 unsigned ring_capture_rate_hz(unsigned rate) {
-#if CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
+#if CONFIG_IDF_TARGET_ESP32C6
+    return rate == 0 ? 80000000u : rate == 1 ? 40000000u : rate == 6 ? 16000000u : 0;
+#elif CONFIG_IDF_TARGET_ESP32C61
     const unsigned rates[] = {80000000, 40000000, 20000000, 10000000, 8000000, 4000000};
     return rate < 6 ? rates[rate] : 0;
 #else
@@ -152,7 +154,9 @@ unsigned ring_capture_rate_hz(unsigned rate) {
 #endif
 }
 static uint32_t rate_bits(unsigned rate) {
-#if CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32C6
+#if CONFIG_IDF_TARGET_ESP32C6
+    return rate == 6 ? (3u << 15) : rate == 1 ? (1u << 15) : 0; /* divide by 5 or 2 */
+#elif CONFIG_IDF_TARGET_ESP32C61
     return 0;
 #else
     return rate == 6 ? (1u << 16) : rate == 1 ? (1u << 15) : 0;
