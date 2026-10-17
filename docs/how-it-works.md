@@ -50,8 +50,16 @@ register in the system block (`0x600c1020` on the C3, "SRAM owner" in the code)
 decides whether the CPU or the dump engine may write a bank:
 
 ```c
-REG_WRITE(SRAM_OWNER_REG, (owner & ~7u) | 2u | 8u);   // bank usage 2, enable bit 3
+REG_WRITE(SRAM_OWNER_REG, (owner & ~7u) | 2u | 8u);   // block 0x3fca0000, upper half
 ```
+
+On the C3, bits 0–2 each give one 128 KiB block to the engine (bit 0:
+`0x3fc80000`, bit 1: `0x3fca0000`, bit 2: `0x3fcc0000`), and bit 3 makes it
+write the upper 64 KiB half, so `2 | 8` means `0x3fcb0000`. The CPU loses the
+whole block, not just the half being written. While the engine runs, reads
+anywhere in it return garbage and writes are lost. Getting a bit wrong is
+dramatic: bit 0 or bit 2 makes the engine overwrite the program's own memory or
+stack.
 
 While the dump engine owns the bank, the CPU must not read it. Some chips return
 garbage (the C3 returns a repeating four-word pattern), so the firmware does all
@@ -126,6 +134,11 @@ I/Q stream, the dump engine runs in **circular mode** instead
 - The ring spans several SRAM banks. While the engine fills one bank, the
   firmware takes ownership of the bank it has just finished, processes it
   (FFT, filtering), and hands it back before the engine comes around again.
+
+The banks must lie in blocks the CPU can still read while the engine writes the
+other one. That is why the C3 has no continuous mode: its owner bits work on
+128 KiB blocks, and the only blocks besides the one already reserved hold the
+program and the heap.
 
 This is a race against the hardware: if processing is too slow, the engine
 overwrites data that hasn't been read yet. The firmware fills unread areas with
