@@ -98,6 +98,14 @@ attempt (`main/common/rx_tuning.h`). Accepting a frequency does not mean the
 PLL locked; the table below shows where reception actually works. C6 and C3
 only support 80 MS/s; other rates are rejected.
 
+There is no reliable lock indicator. RFPLL register `0x62:1:12` bits 3:2
+compare the VCO control voltage with a window (0 inside, 1 below, 2 above),
+and the S2 and C61/S31 calibrations search on them. Inside the window the
+chips received a test tone at every frequency tried. Outside it the S2 and S3
+received nothing, but the C2 still received at 2950 MHz and the C3 at
+1500–1850 and 2850–3050 MHz. So the firmware does not report these bits as
+"lock".
+
 C5 programs every frequency through `phy_set_chanfreq`. The other backends
 calibrate on a standard Wi-Fi channel and then program the PLL directly, so
 off-grid frequencies are not rounded to a channel.
