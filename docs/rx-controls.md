@@ -95,8 +95,13 @@ tracking; explicit PHY DC measurements still invalidate calibration.
 All burst targets advertise `TUNEEXT` and answer `RANGE?` with
 `RANGE 100 6000 1`: any whole MHz from 100 to 6000 is accepted as a tuning
 attempt (`main/common/rx_tuning.h`). Accepting a frequency does not mean the
-PLL locked; the table below shows where reception actually works. C6 and C3
-only support 80 MS/s; other rates are rejected.
+PLL locked; the table below shows where reception actually works.
+
+C3 and C6 capture at 80, 40 or 16 MS/s, but the C6's continuous spectrum runs
+at 80 MS/s only. Both divide the dump clock with control bits 15–16 like the S3,
+but the encoding differs: on the C3 bit 15 means 40 and bit 16 means 16 MS/s;
+on the C6 the two bits are one field dividing by 1, 2, 3 or 5, so 2 gives
+26.7 MS/s, which has no rate code.
 
 There is no reliable lock indicator. RFPLL register `0x62:1:12` bits 3:2
 compare the VCO control voltage with a window (0 inside, 1 below, 2 above),

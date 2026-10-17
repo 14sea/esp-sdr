@@ -97,7 +97,7 @@ static void prepare_rx(void) {
 #include "burst_capture.h"
 static portMUX_TYPE capture_mux = portMUX_INITIALIZER_UNLOCKED;
 static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
-    if (divider != 0) {
+    if (divider != 0 && divider != 1 && divider != 6) {
         reply("ERR rate\n");
         return false;
     }
@@ -114,7 +114,8 @@ static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
     REG_WRITE(0x60033d90, (1u << 6) | (2u << 12) | (3u << 18));
     REG_WRITE(SRAM_OWNER_REG, (owner & ~7u) | 2u | 8u);
     __asm__ volatile("fence rw,rw" ::: "memory");
-    uint32_t ctrl = 0x80000000u | n;
+    /* Like the S3: bit 15 halves the 80 MS/s dump clock, bit 16 divides it by five. */
+    uint32_t ctrl = 0x80000000u | n | (divider == 1 ? 1u << 15 : divider == 6 ? 1u << 16 : 0);
     REG_WRITE(0x60033d5c, ctrl);
     REG_WRITE(0x60033d5c, ctrl | (1u << 19));
     REG_WRITE(0x60033d5c, ctrl);
@@ -175,7 +176,7 @@ static void handle_command(char *line) {
 #if CONFIG_ESP_SDR_UART_ENABLED
               "DUALSERIAL "
 #endif
-              "TUNEEXT LPFANA GAIN HWAGC IQ8\n");
+              "TUNEEXT RX40 RX16 LPFANA GAIN HWAGC IQ8\n");
     } else if (sscanf(line, "BANDWIDTH %u %c", &n, &extra) == 1 &&
                (!n || (n >= RX_BANDWIDTH_MIN && n <= RX_BANDWIDTH_MAX))) {
         rx_filter = rx_bandwidth_dcap(n);

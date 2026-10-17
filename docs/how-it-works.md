@@ -73,7 +73,7 @@ have only characterized the I/Q selection.
 | Bits | Meaning |
 | --- | --- |
 | 0–14 | Number of words (samples) to record |
-| 15–16 | Clock divider, on chips that support several sample rates (S2, S3, C2, H2) |
+| 15–16 | Clock divider, on chips that support several sample rates (S2, S3, C2, C3, C6, H2) |
 | 18 | Done flag, set by hardware |
 | 19 | Trigger: write 1 then 0 to start |
 | 20+ | Data source and mode, on the older ESP32, S2 and S3 (source 0 is I/Q) |

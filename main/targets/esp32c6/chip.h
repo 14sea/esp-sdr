@@ -29,8 +29,12 @@ static void c6_set_chan(unsigned mhz, unsigned mode) {
 static bool frequency_valid(unsigned f) {
     return rx_frequency_valid(f);
 }
-static bool stock_capture(unsigned n, unsigned divider) {
-    if (divider) return false; /* Only the 80 MS/s source-15 path is verified. */
+static bool stock_capture(unsigned n, unsigned rate) {
+    /* CTRL bits 15-16 divide the 80 MS/s dump clock by 1, 2, 3 or 5. Rate
+     * codes 0, 1 and 6 select 80, 40 and 16 MS/s; 80/3 MS/s has no code.
+     * Bit 17 stops the capture from finishing. */
+    unsigned clock = rate == 0 ? 0 : rate == 1 ? 1 : rate == 6 ? 3 : 4;
+    if (clock > 3) return false;
     const uint32_t owner = REG_READ(SRAM_OWNER_REG);
     /* Clock force settings from C6 rftest_init/phy_set_clk_conf. */
     REG_WRITE(0x600a9804, 0xffffffffu);
@@ -43,6 +47,7 @@ static bool stock_capture(unsigned n, unsigned divider) {
     REG_WRITE(SRAM_OWNER_REG, (owner & ~0xf00u) | 0x400u);
     __asm__ volatile("fence rw,rw" ::: "memory");
     (void)REG_READ(SRAM_OWNER_REG);
+    n |= clock << 15;
     REG_WRITE(0x600a9004, n | (1u << 18));
     REG_WRITE(0x600a9004, n | (1u << 31));
     REG_WRITE(0x600a9004, n | (1u << 31) | (1u << 19));

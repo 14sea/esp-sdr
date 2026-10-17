@@ -49,7 +49,7 @@ static bool gain_command(const char *s) { return false; }
 static unsigned gain_max(void) { return 79; }
 #include "burst_limits.h"
 static bool capture(unsigned n,unsigned d,unsigned f) {
-    if(d){reply("ERR rate\n");return false;}
+    if(d!=0&&d!=1&&d!=6){reply("ERR rate\n");return false;}
     ++captures;last_samples=n;last_format=f;return true;
 }
 static void vTaskDelay(int ticks) {}
@@ -60,22 +60,23 @@ static void command(const char *s) { char line[128];snprintf(line,sizeof(line),"
 int main(void) {
  command("INFO");assert(!strcmp(response,"C3SDR 6 burst 16380\n"));
  command("CAPS");assert(strstr(response,"RXLIMITS") && strstr(response,"SERIALLEASE") && strstr(response,"HWAGC"));
- assert(strstr(response,"TUNEEXT") && strstr(response,"LPFANA") && !strstr(response,"RX40"));
- command("LIMITS?");assert(strstr(response,"\"bandwidth\":[14,62,1,0]") && strstr(response,"\"rates\":[80000000]"));
+ assert(strstr(response,"TUNEEXT") && strstr(response,"LPFANA") && strstr(response,"RX40") && strstr(response,"RX16"));
+ command("LIMITS?");assert(strstr(response,"\"bandwidth\":[14,62,1,0]") && strstr(response,"\"rates\":[80000000,40000000,16000000]"));
  command("TRANSPORT?");assert(!strcmp(response,"TRANSPORT UART 2000000\n"));
  command("SYNC 987654321");assert(!strcmp(response,"SYNC 987654321\n"));
  command("CAP16 16380 0");assert(captures==1 && last_samples==16380 && last_format==16);
  command("CAP20 257 0");assert(captures==2 && last_samples==257 && last_format==20);
  command("RXRUN 256 0 2 20");assert(captures==4 && !strcmp(response,"END\n"));
- for(unsigned d=1;d<=6;d++){
+ for(unsigned d=2;d<=5;d++){
    char c[40];snprintf(c,sizeof(c),"CAP20 256 %u",d);command(c);assert(!strcmp(response,"ERR rate\n"));
  }
+ command("CAP16 256 1");command("CAP16 256 6");assert(captures==6);
  const char *bad[]={"CAP16 16381 0","CAP20 255 0","CAP20 256 0 junk",
  "RXRUN 256 0 0 20","RXRUN 256 0 1001 20","RXRUN 256 0 2 32","FREQ 2412 junk",
  "FREQ 2412.5","FREQ 99","FREQ 6001","FREQ 6001","GAIN AUTO","BANDWIDTH 13","BANDWIDTH 63","BANDWIDTH 20 junk",
  "TX20 256 1000000 0","CW START","REPLAY20 256 40000000 0"};
  for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);i++){command(bad[i]);assert(!strcmp(response,"ERR command\n"));}
- assert(captures==4);
+ assert(captures==6);
  for(unsigned f=2412;f<=2472;f+=5){
    char c[40];snprintf(c,sizeof(c),"FREQ %u",f);command(c);assert(frequency_mhz==f && rx_ready);
  }

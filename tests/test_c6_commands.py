@@ -33,7 +33,7 @@ void rx_recalibrate(unsigned mhz) {}
 static unsigned frequency_mhz,captures,last_format,last_samples;
 static int rx_filter,rx_analog_filter;
 static bool rx_ready;
-static char response[128];
+static char response[256];
 static int burst_serial_port(void) { return 1; }
 static unsigned burst_serial_baud(void) { return 2000000; }
 #define spectrum_acquire NULL
@@ -67,14 +67,14 @@ int main(void) {
  command("CAP16 16380 0");assert(captures==1 && last_samples==16380 && last_format==16);
  command("CAP20 257 0");assert(captures==2 && last_samples==257 && last_format==20);
  command("RXRUN 256 0 2 20");assert(captures==4 && !strcmp(response,"END\n"));
- const char *bad[]={"CAP16 16381 0","CAP20 255 0","CAP20 16380 6","CAP20 256 0 junk",
+ const char *bad[]={"CAP16 16381 0","CAP20 255 0","CAP20 16380 7","CAP20 256 0 junk",
  "RXRUN 256 0 0 20","RXRUN 256 0 1001 20","RXRUN 256 0 2 32","FREQ 5180 junk",
  "FREQ 2399.5","GAIN AUTO","TX20 256 1000000 0","CW START","REPLAY20 256 40000000 0"};
  for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);i++){command(bad[i]);assert(!strcmp(response,"ERR command\n"));}
  assert(captures==4);
  command("FREQ 2412");assert(frequency_mhz==2412 && rx_ready);
  command("FREQ 5180");assert(frequency_mhz==5180);
- for(unsigned d=1;d<=5;d++){char c[40];snprintf(c,sizeof(c),"CAP20 256 %u",d);command(c);assert(!strcmp(response,"ERR command\n"));}
+ command("CAP20 256 6");assert(captures==5); /* acquire_iq() rejects codes 2-5. */
  command("LPF 12");assert(!strcmp(response,"ERR command\n"));
  command("ALPF 63");assert(rx_analog_filter==63);
  command("ALPF AUTO");assert(rx_analog_filter==-1);

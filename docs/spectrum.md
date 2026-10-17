@@ -4,7 +4,7 @@
 | --- | --- | --- |
 | ESP32 | — | 256–2048 bins; 16/40/80 MS/s; UART |
 | ESP32-C2 | — | 256–2048 bins; 80/40/16 MS/s; UART |
-| ESP32-C3 | — | 256–2048 bins; 80 MS/s; USB or UART |
+| ESP32-C3 | — | 256–2048 bins; 16/40/80 MS/s; USB or UART |
 | ESP32-C5 | — | 256–2048 bins; 4/8/10/20/40/80 MS/s |
 | ESP32-C6 | 256 bins; 80 MS/s; native USB | 512–2048 bins over USB; 256–2048 over UART |
 | ESP32-H2 | — | 256–2048 bins; 6.4/10.667/16/32 MS/s; USB or UART |

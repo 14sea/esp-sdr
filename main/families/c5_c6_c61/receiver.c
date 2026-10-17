@@ -132,6 +132,12 @@ extern void phy_i2c_writeReg(unsigned, unsigned, unsigned, unsigned);
 static bool probe_capture;
 #endif
 static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
+#if CONFIG_IDF_TARGET_ESP32C6
+    if (divider != 0 && divider != 1 && divider != 6) {
+        reply("ERR rate\n");
+        return false;
+    }
+#endif
     prepare_rx();
 
     for (unsigned j = 0; j < n; j++) IQ_BUFFER[j] = 0xa5a0055au;
@@ -302,7 +308,7 @@ void app_main(void) {
     burst_serial_serve(handle_command);
 }
 
-#define BURST_MAX_RATE (CONFIG_IDF_TARGET_ESP32C6 ? 0 : 5)
+#define BURST_MAX_RATE (CONFIG_IDF_TARGET_ESP32C6 ? 6 : 5)
 #include "burst_commands.h"
 
 static void handle_command(char *line) {
@@ -328,7 +334,9 @@ static void handle_command(char *line) {
         reply(
             "CAPS VERSION GPIO SPEC SPECN SPECCAPS SPECSTAT DCT UARTBAUD RXLIMITS GAIN HWAGC IQ8 SERIALLEASE"
             " TUNEEXT"
-#if !CONFIG_IDF_TARGET_ESP32C6
+#if CONFIG_IDF_TARGET_ESP32C6
+            " RX40 RX16"
+#else
             " LPF LPF12"
 #endif
             " ALPF"
