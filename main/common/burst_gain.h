@@ -17,6 +17,7 @@ extern void force_rx_gain(unsigned, unsigned, unsigned);
 #else
 #define BURST_GAIN_REG 0x6001c02cu
 #endif
+#include "burst_gain_min.h"
 typedef enum { GAIN_MANUAL, GAIN_HARDWARE } burst_gain_mode_t;
 static burst_gain_mode_t gain_mode = GAIN_HARDWARE;
 static unsigned gain_code = 40;
@@ -62,8 +63,7 @@ static void gain_apply(void) {
               manual ? (gain_threshold_saved & ~0x1fc0000u) | (gain_code << 18) : gain_threshold_saved);
 #endif
 #if CONFIG_IDF_TARGET_ESP32H2
-    /* Indices 0 and 1 saturate like maximum gain; the lowest real gain is 2. */
-    force_rx_gain(manual, gain_code < 2 ? 2 : gain_code);
+    force_rx_gain(manual, gain_code);
     /* Keep the Bluetooth receiver running even when releasing forced gain. */
     bt_rx_force(1);
 #else
@@ -87,7 +87,8 @@ static bool gain_command(const char *line) {
     }
     if (!strcmp(line, "GAIN HARDWARE")) {
         gain_mode = GAIN_HARDWARE;
-    } else if (sscanf(line, "GAIN MANUAL %u %c", &code, &extra) == 1 && code <= gain_max()) {
+    } else if (sscanf(line, "GAIN MANUAL %u %c", &code, &extra) == 1 &&
+               code - GAIN_MIN <= gain_max() - GAIN_MIN) { /* GAIN_MIN..gain_max() */
         gain_mode = GAIN_MANUAL;
         gain_code = code;
     } else
