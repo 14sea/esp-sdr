@@ -287,36 +287,14 @@ static bool ring_probe_command(const char *line) {
 }
 #endif
 
-static bool capture(unsigned n, unsigned divider, unsigned bits) {
+#define IQ_BUFFER  samples
+#define send_bytes burst_serial_send
+#include "burst_capture.h"
+
+static bool capture(unsigned n, unsigned divider, unsigned format) {
     unsigned elapsed;
     if (!acquire_iq(n, divider, &elapsed)) return false;
-    size_t bytes = n * 4;
-    uint8_t *packed = (uint8_t *)samples;
-    if (bits == 8) {
-        for (unsigned j = 0; j < n; j++) {
-            uint32_t w = samples[j];
-            packed[2 * j] = (w >> 2) & 255;
-            packed[2 * j + 1] = (w >> 12) & 255;
-        }
-        bytes = n * 2;
-    } else if (bits == 10) {
-        for (unsigned j = 0; j < n; j += 2, packed += 5) {
-            uint32_t a = samples[j] & 0xfffff;
-            uint32_t b = j + 1 < n ? samples[j + 1] & 0xfffff : 0;
-            packed[0] = a;
-            packed[1] = a >> 8;
-            packed[2] = (a >> 16) | (b << 4);
-            if (j + 1 < n) {
-                packed[3] = b >> 4;
-                packed[4] = b >> 12;
-            }
-        }
-        bytes = (n * 20 + 7) / 8;
-    }
-    uint32_t crc = esp_rom_crc32_le(0, (const uint8_t *)samples, bytes);
-    char header[96];
-    int length = snprintf(header, sizeof(header), "DATA %u %08" PRIx32 " %u\n", n, crc, elapsed);
-    return burst_serial_send(header, length) && burst_serial_send(samples, bytes);
+    return burst_send_capture(n, format, elapsed);
 }
 
 static void apply_gain(void) {
@@ -417,15 +395,15 @@ static void command(char *line) {
         apply_gain();
         reply("OK\n");
     } else if (sscanf(line, "CAP16 %u %u %c", &n, &rate, &extra) == 2)
-        capture_rate(n, rate, 8);
+        capture_rate(n, rate, 16);
     else if (sscanf(line, "CAP20 %u %u %c", &n, &rate, &extra) == 2)
-        capture_rate(n, rate, 10);
+        capture_rate(n, rate, 20);
     else if (!strncmp(line, "CAP ", 4) && sscanf(line, "CAP %u %u %c", &n, &rate, &extra) == 2)
-        capture_rate(n, rate, 32);
+        capture_rate(n, rate, 0);
     else if (sscanf(line, "RXRUN %u %u %u %u %c", &n, &rate, &repeats, &format, &extra) == 4 && repeats > 0 &&
              repeats <= 1000 && (format == 16 || format == 20)) {
         for (unsigned j = 0; j < repeats; j++) {
-            if (!capture_rate(n, rate, format / 2)) return;
+            if (!capture_rate(n, rate, format)) return;
             vTaskDelay(1);
         }
         reply("END\n");
