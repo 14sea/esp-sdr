@@ -77,10 +77,12 @@ static void reply(const char *fmt, ...) {
 
 static void tune_rx(unsigned mhz);
 static void apply_gain(void);
+static bool rx_ready;
 static void prepare_rx(void) {
-    if (rx_recalibration_stale()) {
+    if (!rx_ready || rx_recalibration_stale()) {
         tune_rx(frequency_mhz);
         apply_gain();
+        rx_ready = true;
     }
     rom_pbus_workmode();
     rom_pbus_xpd_tx_off();
@@ -141,38 +143,6 @@ static bool spectrum_acquire(unsigned n, unsigned rate, const uint32_t **data, u
 
 #include "ring_probe.h"
 
-static bool capture(unsigned n, unsigned source, unsigned clock, unsigned bits) {
-    unsigned elapsed;
-    if (!acquire_iq(n, source, clock, &elapsed)) return false;
-    size_t bytes = n * 4;
-    uint8_t *packed = (uint8_t *)samples;
-    if (bits == 8) {
-        for (unsigned j = 0; j < n; j++) {
-            uint32_t w = samples[j];
-            packed[2 * j] = (w >> 2) & 255;
-            packed[2 * j + 1] = (w >> 12) & 255;
-        }
-        bytes = n * 2;
-    } else if (bits == 10) {
-        for (unsigned j = 0; j < n; j += 2, packed += 5) {
-            uint32_t a = samples[j] & 0xfffff;
-            uint32_t b = j + 1 < n ? samples[j + 1] & 0xfffff : 0;
-            packed[0] = a;
-            packed[1] = a >> 8;
-            packed[2] = (a >> 16) | (b << 4);
-            if (j + 1 < n) {
-                packed[3] = b >> 4;
-                packed[4] = b >> 12;
-            }
-        }
-        bytes = (n * 20 + 7) / 8;
-    }
-    uint32_t crc = esp_rom_crc32_le(0, (const uint8_t *)samples, bytes);
-    char header[96];
-    int length = snprintf(header, sizeof(header), "DATA %u %08" PRIx32 " %u\n", n, crc, elapsed);
-    return burst_serial_send(header, length) && burst_serial_send(samples, bytes);
-}
-
 static void apply_gain(void) {
     uint32_t gain = REG_READ(RX_GAIN);
     if (hardware_agc)
@@ -209,27 +179,38 @@ static void tune_rx(unsigned mhz) {
     }
 }
 
-static bool capture_rate(unsigned n, unsigned rate, unsigned format) {
-    if (n < 256 || n > MAX_SAMPLES || (rate != 0 && rate != 1 && rate != 6)) {
-        reply("ERR capture_settings\n");
+#define IQ_BUFFER  samples
+#define IQ_WORDS   MAX_SAMPLES
+#define send_bytes burst_serial_send
+#include "burst_capture.h"
+
+/* Rate codes 0, 1 and 6 (80, 40 and 16 MS/s) are dump clocks 1, 2 and 0. */
+static bool capture(unsigned n, unsigned rate, unsigned format) {
+    unsigned elapsed;
+    if (rate != 0 && rate != 1 && rate != 6) {
+        reply("ERR rate\n");
         return false;
     }
-    return capture(n, 0, rate == 0 ? 1 : rate == 1 ? 2 : 0, format);
+    if (!acquire_iq(n, 0, rate == 0 ? 1 : rate == 1 ? 2 : 0, &elapsed)) return false;
+    return burst_send_capture(n, format, elapsed);
 }
 
-static void command(const char *line) {
+#define frequency_valid rx_frequency_valid
+#define BURST_ID        "ESP32SDR"
+#define BURST_MAX_RATE  6
+#include "burst_commands.h"
+
+static void command(char *line) {
     if (burst_version_command(line)) return;
     if (burst_gpio_command(line)) return;
 #ifdef RING_PROBE
     if (ring_probe_command(line)) return;
 #endif
     if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
-    unsigned n, rate, repeats, format;
-    uint64_t nonce;
+    if (burst_common_command(line)) return;
+    unsigned n;
     char extra;
-    if (!strcmp(line, "INFO"))
-        reply("ESP32SDR 6 burst 16380\n");
-    else if (!strcmp(line, "CAPS"))
+    if (!strcmp(line, "CAPS"))
         reply(
             "CAPS VERSION GPIO SPEC SPECN SPECCAPS SPECSTAT DCT UARTBAUD RXLIMITS SERIALLEASE TUNEEXT RX40 RX16 LPFANA GAIN HWAGC IQ8\n");
     else if (sscanf(line, "BANDWIDTH %u %c", &n, &extra) == 1 &&
@@ -245,19 +226,11 @@ static void command(const char *line) {
     } else if (!strcmp(line, "LPF?"))
         reply("LPF %d %u %u\n", rx_filter, rom_chip_i2c_readReg(0x67, 1, 1),
               rom_chip_i2c_readReg(0x67, 1, 2));
-    else if (!strcmp(line, "TRANSPORT?"))
-        reply("TRANSPORT UART %u\n", burst_serial_baud());
     else if (!strcmp(line, "LIMITS?")) {
         reply(
             "LIMITS {\"gain\":[0,%u,1],\"bandwidth\":[%u,%u,1,0],\"rates\":[80000000,40000000,16000000],\"bits\":[8,10]}\n",
             gain_max, RX_BANDWIDTH_MIN, RX_BANDWIDTH_MAX);
-    } else if (!strcmp(line, "RANGE?"))
-        reply(RX_TUNING_RANGE_REPLY);
-    else if (sscanf(line, "SYNC %" SCNu64 " %c", &nonce, &extra) == 1)
-        reply("SYNC %" PRIu64 "\n", nonce);
-    else if (!strcmp(line, "RELEASE"))
-        reply("OK\n");
-    else if (!strcmp(line, "GAIN?"))
+    } else if (!strcmp(line, "GAIN?"))
         reply("GAIN %s %d 0 %u %u\n", hardware_agc ? "HARDWARE" : "MANUAL",
               hardware_agc ? -1 : (int)gain_code, gain_max, (unsigned)((REG_READ(RX_GAIN) >> 23) & 1));
     else if (!strcmp(line, "GAIN HARDWARE")) {
@@ -269,25 +242,6 @@ static void command(const char *line) {
         gain_code = n;
         apply_gain();
         reply("OK\n");
-    } else if (sscanf(line, "FREQ %u %c", &n, &extra) == 1 && rx_frequency_valid(n)) {
-        frequency_mhz = n;
-        tune_rx(n);
-        prepare_rx();
-        apply_gain();
-        reply("OK\n");
-    } else if (sscanf(line, "CAP16 %u %u %c", &n, &rate, &extra) == 2)
-        capture_rate(n, rate, 8);
-    else if (sscanf(line, "CAP20 %u %u %c", &n, &rate, &extra) == 2)
-        capture_rate(n, rate, 10);
-    else if (!strncmp(line, "CAP ", 4) && sscanf(line, "CAP %u %u %c", &n, &rate, &extra) == 2)
-        capture_rate(n, rate, 32);
-    else if (sscanf(line, "RXRUN %u %u %u %u %c", &n, &rate, &repeats, &format, &extra) == 4 && repeats > 0 &&
-             repeats <= 1000 && (format == 16 || format == 20)) {
-        for (unsigned j = 0; j < repeats; j++) {
-            if (!capture_rate(n, rate, format / 2)) return;
-            vTaskDelay(1);
-        }
-        reply("END\n");
     } else
         reply("ERR command\n");
 }
@@ -314,16 +268,5 @@ void app_main(void) {
     REG_CLR_BIT(RX_GAIN, BIT(23)); /* Hardware AGC is the default. */
     fflush(stdout);
     burst_serial_init();
-    char line[128];
-    for (;;) {
-        int status = burst_serial_poll_line(line, sizeof(line));
-        if (!status) {
-            vTaskDelay(1);
-            continue;
-        }
-        if (status < 0)
-            reply("ERR command_length\n");
-        else
-            command(line);
-    }
+    burst_serial_serve(command);
 }
