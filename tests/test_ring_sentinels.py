@@ -12,13 +12,14 @@ class RingSentinels(unittest.TestCase):
     @unittest.skipUnless(shutil.which('cc'), 'Host C compiler unavailable')
     def test_wrapped_regions_and_untouched_neighbors(self):
         source = (ROOT / 'main/common/ring_capture.c').read_text()
-        source = source[source.index('RING_HOT static void fill_sentinels('):
+        source = source[source.index('RING_SWITCH static void fill_sentinels('):
                         source.index('/* First written pair')]
         source = source.replace('__asm__ volatile("fence rw,rw" ::: "memory");', '')
         harness = r'''
 #include <stdint.h>
 #include <assert.h>
 #define RING_HOT
+#define RING_SWITCH
 #define RING_PAIRS 16384u
 #define RING_MASK (RING_PAIRS-1)
 #define SENTINEL 0xa5c33c5au

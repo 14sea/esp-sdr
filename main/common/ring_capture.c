@@ -65,6 +65,15 @@ int s3_fft2r_sc16_rnd_stage(int16_t *data, int N, int16_t *w, unsigned stage);
 #else
 #define RING_HOT
 #endif
+/* The C6/C61 have no IRAM to spare for all of it, but the code that runs at a
+ * bank switch must not miss the flash cache either: otherwise the first capture
+ * after boot missed its first unit end in about 40% of boots, depending only on
+ * the binary layout. */
+#if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
+#define RING_SWITCH IRAM_ATTR
+#else
+#define RING_SWITCH
+#endif
 #define RING_MASK (RING_PAIRS - 1u)
 #define THRESHOLD RING_THRESHOLD
 #define SENTINEL  0xA5C33C5Au
@@ -158,7 +167,7 @@ static unsigned cycles_per_pair(unsigned rate) { /* 240 MHz CPU */
 /* Fills ring indices [at, at+count) of bank b with sentinels, wrapping.
  * 128-bit PIE stores (from eSpDR capture.c, 0BSD): at 80 Msps the scalar
  * loop was too slow to prepare 7 k words before the next switch. */
-RING_HOT static void fill_sentinels(unsigned b, unsigned at, unsigned count) {
+RING_SWITCH static void fill_sentinels(unsigned b, unsigned at, unsigned count) {
     at &= RING_MASK;
     while (count) {
         unsigned n = RING_PAIRS - at;
@@ -214,7 +223,7 @@ RING_HOT static void fill_sentinels(unsigned b, unsigned at, unsigned count) {
 
 /* First written pair in [origin, origin+guard), which holds sentinels up to
  * the unit start and data from there on. */
-RING_HOT static uint32_t find_first(unsigned b, unsigned origin, unsigned guard) {
+RING_SWITCH static uint32_t find_first(unsigned b, unsigned origin, unsigned guard) {
     const uint32_t *p = bank_ptr(b);
     if (p[origin & RING_MASK] != SENTINEL) return NOT_FOUND; /* started early */
     if (p[(origin + guard - 1) & RING_MASK] == SENTINEL) return NOT_FOUND;
@@ -231,7 +240,7 @@ RING_HOT static uint32_t find_first(unsigned b, unsigned origin, unsigned guard)
 
 /* One past the last written pair in [origin, origin+guard), searching from
  * the write index seen before the switch. */
-RING_HOT static uint32_t find_end(unsigned b, unsigned origin, unsigned write_index, unsigned guard) {
+RING_SWITCH static uint32_t find_end(unsigned b, unsigned origin, unsigned write_index, unsigned guard) {
     const uint32_t *p = bank_ptr(b);
     unsigned lo = (write_index - origin) & RING_MASK;
     if (lo >= guard || p[(origin + guard - 1) & RING_MASK] != SENTINEL) return NOT_FOUND;
