@@ -101,10 +101,9 @@ only support 80 MS/s; other rates are rejected.
 There is no reliable lock indicator. RFPLL register `0x62:1:12` bits 3:2
 compare the VCO control voltage with a window (0 inside, 1 below, 2 above),
 and the S2 and C61/S31 calibrations search on them. Inside the window the
-chips received a test tone at every frequency tried. Outside it the S2 and S3
-received nothing, but the C2 still received at 2950 MHz and the C3 at
-1500–1850 and 2850–3050 MHz. So the firmware does not report these bits as
-"lock".
+chips received a test tone at every frequency tried. Outside it the S2, S3 and
+C3 usually received nothing, but the C2 still received at 2950 MHz and the C3
+at 1850 MHz. So the firmware does not report these bits as "lock".
 
 C5 programs every frequency through `phy_set_chanfreq`. The other backends
 calibrate on a standard Wi-Fi channel and then program the PLL directly, so
@@ -113,28 +112,35 @@ off-grid frequencies are not rounded to a channel.
 ### Measured reception range
 
 A signal generator transmitted a CW tone 2 MHz above the LO, over the air,
-with the receiver in its default gain mode. "✓" means the tone was at least 15 dB
-above the noise floor (typically 35–70 dB), "–" means it was not received,
-"(weak)" means barely above the threshold (about 19 dB). The S31 received
-well from 2150 MHz.
-Measured with one board per chip, in October 2026 (`esp32s2` at 80 MS/s,
-others at their lowest rate of at least 8 MS/s):
+with the receiver in its default gain mode, at the chip's lowest rate of at
+least 8 MS/s. "✓" means the tone was at least 15 dB above the noise inside the
+analog filter (typically 35–65 dB), "–" means it was not received. One board
+per chip, October 2026:
 
-| Chip | 1850 | 1950 | 2100 | 2200 | 2300–2650 | 2750 | 5180–5800 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| ESP32, C2, C3, C6, S2, S3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| C5 | ✓ | – | – | ✓ | ✓ | – | ✓ |
-| C61 | – | – | – | ✓ | ✓ | ✓ | |
-| H2 | – | – | – | – | ✓ | – | |
-| S31 | (weak) | (weak) | – | ✓ | ✓ | ✓ | |
+| Chip | 1850 | 1950 | 2100 | 2200 | 2300–2650 | 2750 | 2850 | 2950 | 5180–5800 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C2 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| ESP32 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | – | |
+| C3, S2, S3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | – | – | |
+| C6 | – | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | – | |
+| C61, S31 | – | – | – | ✓ | ✓ | ✓ | ✓ | – | |
+| C5 | – | – | – | ✓ | ✓ | – | – | – | ✓ |
+| H2 | – | – | – | – | ✓ | – | – | – | |
+
+Nothing was received at 1500–1800 or 3050 MHz. The S31 receives from about
+2150 MHz. The S2 board was the least sensitive (17–27 dB), and at 2442 MHz
+local Wi-Fi traffic hid the tone.
+
+Measure against in-band noise, not the median of the whole spectrum. At 80 MS/s
+most FFT bins lie outside the analog filter, and their median is about 25 dB
+lower than the noise inside it. That makes noise peaks look like a received
+tone.
 
 On the S2, the 40 and 16 MS/s modes keep every second or fifth sample of the
 80 MS/s stream, with no digital filter. Whatever the analog filter passes
 beyond ±fs/2 folds into the band, so narrow `BANDWIDTH` if strong signals sit
 just outside it. A tone's signal-to-noise ratio against the in-band noise stays
-within 1 dB of 80 MS/s. (A peak-over-median measurement suggests otherwise:
-at 80 MS/s most FFT bins lie outside the analog filter, so the median is
-lower.)
+within 1 dB of 80 MS/s.
 
 ### Lower-band LO conversion (5/6 divider)
 
