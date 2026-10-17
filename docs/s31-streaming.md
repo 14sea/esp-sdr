@@ -12,9 +12,7 @@ for [SoapyESPSDR](https://github.com/ESPARGOS/SoapyESPSDR):
 | High-speed USB | 4, 8, 16, 20 MSa/s | 8-bit I + 8-bit Q |
 
 The ordinary `esp32s31` firmware is the one for the browser viewer; this one
-does not speak the serial burst protocol. Hardware results are in the
-[streaming validation report](testing/s31-streaming-2026-10-02.md) and the
-[signal-quality report](testing/s31-quality-2026-10-02.md).
+does not speak the serial burst protocol.
 
 ## Build, flash, connect
 
