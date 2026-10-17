@@ -137,15 +137,7 @@ static void prepare_rx(void) {
     esp_rom_delay_us(3000);
     rx_ready = true;
 }
-#include "filter_probe.h"
-
 #include "burst_capture.h"
-#ifdef SAMPLE_RATE_PROBE
-/* Volatile, bounded dump-clock/source investigation; excluded from releases. */
-static unsigned probe_source, probe_clock, probe_adc = 4;
-extern void rom_dac_rate_set(unsigned);
-static bool probe_capture;
-#endif
 static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
     if (divider != 0 && divider != 1 && divider != 6) {
         reply("ERR rate\n");
@@ -155,10 +147,6 @@ static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
 
     for (unsigned j = 0; j < n + 4; j++) IQ_BUFFER[j] = 0xa5a0055au;
     rx_filter_apply();
-#ifdef SAMPLE_RATE_PROBE
-    unsigned adc_saved = rom_chip_i2c_readReg(0x66, 0, 4);
-    if (probe_adc < 4) rom_chip_i2c_writeReg(0x66, 0, 4, (adc_saved & ~12u) | (probe_adc << 2));
-#endif
     uint32_t owner = REG_READ(SRAM_OWNER_REG);
     int64_t start = esp_timer_get_time();
     REG_WRITE(0x60033d64, 0);
@@ -173,9 +161,6 @@ static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
 #ifdef S2_RF_PROBE
     ctrl |= rx_clock << 15;
 #endif
-#ifdef SAMPLE_RATE_PROBE
-    if (probe_capture) ctrl = (ctrl & ~0x7ff38000u) | (probe_source << 20) | (probe_clock << 15);
-#endif
     REG_WRITE(0x60033d64, ctrl);
     REG_WRITE(0x60033d64, ctrl | (1u << 19));
     REG_WRITE(0x60033d64, ctrl);
@@ -185,9 +170,6 @@ static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
     REG_WRITE(0x60033d64, 0);
     REG_WRITE(SRAM_OWNER_REG, owner);
     rx_filter_restore();
-#ifdef SAMPLE_RATE_PROBE
-    if (probe_adc < 4) rom_chip_i2c_writeReg(0x66, 0, 4, adc_saved);
-#endif
     if (!done) {
         reply("ERR capture_timeout\n");
         return false;
@@ -214,6 +196,7 @@ static bool spectrum_acquire(unsigned n, unsigned rate, const uint32_t **data, u
 }
 
 #include "ring_probe.h"
+#include "dump_probe.h"
 
 static bool capture(unsigned n, unsigned divider, unsigned format) {
     unsigned elapsed;
@@ -231,15 +214,14 @@ static void handle_command(char *line) {
 #ifdef RING_PROBE
     if (ring_probe_command(line)) return;
 #endif
-    if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
-#ifdef FILTER_REGISTER_PROBE
-    if (filter_probe_command(line)) return;
+#ifdef S2_RF_PROBE
+    if (dump_probe_command(line)) return;
 #endif
+    if (spectrum_command(line, frequency_mhz, spectrum_acquire)) return;
     if (limits_command(line)) return;
     if (gain_command(line)) return;
     if (burst_common_command(line)) return;
     unsigned n;
-    unsigned rate __attribute__((unused)); /* only the diagnostic probes use it */
     char extra;
     if (!strcmp(line, "CAPS")) {
         reply("CAPS VERSION GPIO SPEC SPECN SPECCAPS SPECSTAT DCT UARTBAUD RXLIMITS SERIALLEASE "
@@ -262,87 +244,7 @@ static void handle_command(char *line) {
         snprintf(answer, sizeof(answer), "LPF %d %u %u\n", rx_filter, rom_chip_i2c_readReg(0x67, 1, 4) & 63,
                  rom_chip_i2c_readReg(0x67, 1, 5) & 63);
         reply(answer);
-    }
-#ifdef SAMPLE_RATE_PROBE
-    else if (sscanf(line, "RXPROBE %u %u %c", &n, &rate, &extra) == 2 && n < 2048 && rate < 8) {
-        probe_source = n;
-        probe_clock = rate;
-        probe_capture = true;
-        capture(12284, 0, 20);
-        probe_capture = false;
-    } else if (sscanf(line, "ADCCLOCK %u %c", &n, &extra) == 1 && n <= 4) {
-        probe_adc = n;
-        reply("OK\n");
-    } else if (!strcmp(line, "ADCCLOCK?")) {
-        char h[64];
-        snprintf(h, sizeof(h), "ADC %u\n", rom_chip_i2c_readReg(0x66, 0, 4));
-        reply(h);
-    }
-#endif
-#ifdef S2_RF_PROBE
-    else if (sscanf(line, "ANAREAD %u %u %c", &n, &rate, &extra) == 2 && n < 2 && rate < 32) {
-        char h[64];
-        snprintf(h, sizeof(h), "ANA %u %u %u\n", n, rate, rom_chip_i2c_readReg(0x67, n, rate));
-        reply(h);
-    } else if (!strcmp(line, "GAINREG?")) {
-        char h[64];
-        snprintf(h, sizeof(h), "GAINREG %08x\n", (unsigned)REG_READ(0x6001c02c));
-        reply(h);
-    } else if (!strcmp(line, "WORDS?")) {
-        char h[120];
-        snprintf(h, sizeof(h), "WORDS %08x %08x %08x %08x OWNER %08x\n", (unsigned)IQ_BUFFER[0],
-                 (unsigned)IQ_BUFFER[1], (unsigned)IQ_BUFFER[2], (unsigned)IQ_BUFFER[3],
-                 (unsigned)REG_READ(SRAM_OWNER_REG));
-        reply(h);
-    } else if (!strcmp(line, "MEMTEST")) {
-        for (unsigned j = 0; j < IQ_WORDS; j++) IQ_BUFFER[j] = 0x12345678u + j;
-        reply("OK\n");
-    } else if (sscanf(line, "RXWIDE %u %c", &n, &extra) == 1 && n < 2) {
-        rx_wide = n;
-        reply("OK\n");
-    } else if (sscanf(line, "RXPREP %u %c", &n, &extra) == 1 && n < 4) {
-        rx_prep = n;
-        rx_ready = false;
-        reply("OK\n");
-    } else if (sscanf(line, "RXPACK %u %u %c", &n, &rate, &extra) == 2 && n <= 60 && rate <= 1) {
-        rx_pack = n;
-        rx_agc = rate;
-        reply("OK\n");
-    } else if (sscanf(line, "RXSRC %u %c", &n, &extra) == 1 && n < 256) {
-        rx_source = n;
-        reply("OK\n");
-    } else if (sscanf(line, "RXMODE %u %c", &n, &extra) == 1 && n < 8) {
-        rx_mode = n;
-        reply("OK\n");
-    } else if (sscanf(line, "RXFLAG %u %c", &n, &extra) == 1 && n < 2) {
-        rx_flag = n;
-        reply("OK\n");
-    } else if (sscanf(line, "RXCLOCK %u %c", &n, &extra) == 1 && n < 2) {
-        rx_clock = n;
-        reply("OK\n");
-    } else if (!strcmp(line, "RXREGS?")) {
-        for (unsigned a = 0x60033d50; a <= 0x60033d98; a += 4) {
-            char h[60];
-            snprintf(h, sizeof(h), "REG %08x %08x\n", a, (unsigned)REG_READ(a));
-            reply(h);
-        }
-        reply("END\n");
-    } else if (!strcmp(line, "RFREG?")) {
-        char h[120];
-        snprintf(h, sizeof(h), "RFREG %08x %08x %08x\n", (unsigned)REG_READ(0x60033d64),
-                 (unsigned)REG_READ(0x60033d60), (unsigned)REG_READ(0x60033d64));
-        reply(h);
-    }
-#endif
-#ifdef S2_RF_PROBE
-    else if (sscanf(line, "FREQEX %u %c", &n, &extra) == 1 && n >= 100 && n <= 6000) {
-        frequency_mhz = n;
-        rx_ready = false;
-        prepare_rx();
-        reply("OK\n");
-    }
-#endif
-    else
+    } else
         reply("ERR command\n");
 }
 
