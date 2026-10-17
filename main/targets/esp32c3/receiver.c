@@ -106,7 +106,8 @@ static bool acquire_iq(unsigned n, unsigned divider, unsigned *capture_us) {
     for (unsigned j = 0; j < n; j++) IQ_BUFFER[j] = 0xa5a0055au;
     rx_filter_apply();
     /* Prevent task/interrupt interleaving during the bank handoff and
-     * bounded snapshot (about 205 us at the maximum sample count). */
+     * bounded snapshot (at the maximum sample count about 205 us at 80 MS/s,
+     * 410 us at 40 MS/s and 1 ms at 16 MS/s). */
     taskENTER_CRITICAL(&capture_mux);
     uint32_t owner = REG_READ(SRAM_OWNER_REG);
     int64_t start = esp_timer_get_time();

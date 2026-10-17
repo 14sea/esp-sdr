@@ -44,9 +44,15 @@ static bool dump_probe_command(char *line) {
         }
         reply("END\n");
     } else if (!strcmp(line, "RFREG?")) {
+        /* Dump control, write index and the word after; the S2's sit 8 bytes higher. */
+#if CONFIG_IDF_TARGET_ESP32S2
+        const uint32_t ctrl = 0x60033d64u;
+#else
+        const uint32_t ctrl = 0x60033d5cu;
+#endif
         char h[120];
-        snprintf(h, sizeof(h), "RFREG %08x %08x %08x\n", (unsigned)REG_READ(0x60033d5c),
-                 (unsigned)REG_READ(0x60033d60), (unsigned)REG_READ(0x60033d64));
+        snprintf(h, sizeof(h), "RFREG %08x %08x %08x\n", (unsigned)REG_READ(ctrl),
+                 (unsigned)REG_READ(ctrl + 4), (unsigned)REG_READ(ctrl + 8));
         reply(h);
     } else if (sscanf(line, "FREQEX %u %c", &n, &extra) == 1 && n >= 100 && n <= 6000) {
         frequency_mhz = n;
