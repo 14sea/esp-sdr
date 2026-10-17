@@ -81,13 +81,14 @@ static bool rx_ready;
 static void prepare_rx(void) {
     if (!rx_ready || rx_recalibration_stale()) {
         tune_rx(frequency_mhz);
-        apply_gain();
         rx_ready = true;
     }
     rom_pbus_workmode();
     rom_pbus_xpd_tx_off();
     rom_pbus_xpd_rx_on(1);
     rom_set_rxclk_en(1);
+    /* PBUS work-mode setup releases a forced RX gain; apply it afterwards. */
+    apply_gain();
     if (rx_lo_select(rx_lo_plan(frequency_mhz).alternate)) esp_rom_delay_us(3000);
 }
 

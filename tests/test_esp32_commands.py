@@ -46,9 +46,10 @@ static unsigned frequency_mhz;
 static bool spectrum_command(const char *s,unsigned f,void *acquire){return false;}
 static void reply(const char *fmt,...) {va_list a;va_start(a,fmt);vsnprintf(response,sizeof(response),fmt,a);va_end(a);}
 static unsigned burst_serial_baud(void){return 2000000;}
-static void apply_gain(void){}
+static unsigned order, pbus_at, gain_at;
+static void apply_gain(void){gain_at=++order;}
 static void tune_rx(unsigned mhz);
-static void rom_pbus_workmode(void){}
+static void rom_pbus_workmode(void){pbus_at=++order;}
 static void rom_pbus_xpd_tx_off(void){}
 static void rom_pbus_xpd_rx_on(int on){}
 static void rom_set_rxclk_en(int on){}
@@ -82,6 +83,7 @@ int main(void){
    assert(error>=-500 && error<=500);
    assert(channel==(((f>=2412 && f<=2472 && (f-2412)%5==0)||f==2484)?f:2412));
  }
+ run("FREQ 2442");assert(gain_at>pbus_at); /* PBUS setup releases a forced gain */
  run("FREQ 2413");assert(crystal==0);
  xtal=26;run("FREQ 2413");assert(crystal==1);
  xtal=24;run("FREQ 2413");assert(crystal==2);
