@@ -120,9 +120,13 @@ others at their lowest rate of at least 8 MS/s):
 | H2 | – | – | – | – | ✓ | – | |
 | S31 | (weak) | (weak) | – | ✓ | ✓ | ✓ | |
 
-On the S2, the 40 and 16 MS/s modes subsample the 80 MS/s stream without
-filtering and lose roughly 15 dB of signal-to-noise ratio; use 80 MS/s where
-possible.
+On the S2, the 40 and 16 MS/s modes keep every second or fifth sample of the
+80 MS/s stream, with no digital filter. Whatever the analog filter passes
+beyond ±fs/2 folds into the band, so narrow `BANDWIDTH` if strong signals sit
+just outside it. A tone's signal-to-noise ratio against the in-band noise stays
+within 1 dB of 80 MS/s. (A peak-over-median measurement suggests otherwise:
+at 80 MS/s most FFT bins lie outside the analog filter, so the median is
+lower.)
 
 ### Lower-band LO conversion (5/6 divider)
 
