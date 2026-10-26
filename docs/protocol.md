@@ -41,8 +41,19 @@ Details on gain, bandwidth, calibration and extended tuning are in
 
 ## Captures
 
-`CAP16 <samples> <rate>` returns signed 8-bit I/Q pairs and `CAP20 <samples> <rate>`
-returns packed signed 10-bit I/Q (20 bits per pair, LSB first). The reply is
+`CAP16 <samples> <rate>` and `CAP20 <samples> <rate>` return samples as
+`(I, -Q)` pairs. Both components are signed two's complement integers.
+
+**Q is negated in the transmitted samples.** Negate the second component
+when decoding to obtain standard `(I, Q)` samples.
+
+| Format | Bits per sample | I | -Q |
+| --- | --- | --- | --- |
+| `CAP16` | 16 | First byte, signed 8-bit | Second byte, signed 8-bit |
+| `CAP20` | 20 | Bits 0–9, signed 10-bit | Bits 10–19, signed 10-bit |
+
+`CAP20` samples are packed consecutively, LSB first, with no padding between
+samples. The reply is
 
 ```text
 DATA <samples> <crc32-hex> <capture-microseconds>
@@ -57,16 +68,9 @@ followed by exactly `ceil(samples * bits * 2 / 8)` bytes. Check the CRC32
 
 A capture is a single burst; there are gaps between captures.
 
-In burst captures, a signal above the LO appears at negative frequency in
-the FFT of `I + jQ`: `f_baseband = f_LO - f_RF`. Hosts conjugate the samples
-(use `I - jQ`) to obtain the usual RF axis `f_RF = f_LO + f_baseband`.
-For example, a 2444 MHz signal captured with `FREQ 2442` appears at -2 MHz
-before conjugation and +2 MHz afterward. esp-web-sdr already applies this
-conversion when decoding both `CAP16` and `CAP20`.
-
-The [S3 continuous stream](iq-stream.md) also requires conjugation.
-The separate [S31 streaming firmware](s31-streaming.md#iq-packets)
-uses the opposite polarity and does not require conjugation.
+The [S3 continuous stream](iq-stream.md) also sends `(I, -Q)` pairs.
+The separate [S31 streaming firmware](s31-streaming.md#iq-packets) sends
+`(I, Q)` pairs.
 
 ## Streaming modes
 
