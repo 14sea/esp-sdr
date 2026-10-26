@@ -88,6 +88,11 @@ are concatenated, and transfer boundaries need not match packet boundaries.
 | 24 | uint64 | Microseconds since boot at the first sample |
 | 32 | 1344 bytes | 672 signed I, Q pairs |
 
+Interpreting these pairs as `I + jQ` puts RF above the LO at positive
+frequency: `f_RF = f_LO + f_baseband`. Do not conjugate these samples.
+This differs from the [burst capture protocol](protocol.md#captures),
+including burst captures on the S31, and from the S3 continuous stream.
+
 Each configuration change starts a new epoch, with positions counting from
 zero again. Within an epoch, a jump in position is lost data. The timestamp
 comes from a software clock read just before DMA starts; it is not a

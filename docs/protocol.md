@@ -57,6 +57,17 @@ followed by exactly `ceil(samples * bits * 2 / 8)` bytes. Check the CRC32
 
 A capture is a single burst; there are gaps between captures.
 
+In burst captures, a signal above the LO appears at negative frequency in
+the FFT of `I + jQ`: `f_baseband = f_LO - f_RF`. Hosts conjugate the samples
+(use `I - jQ`) to obtain the usual RF axis `f_RF = f_LO + f_baseband`.
+For example, a 2444 MHz signal captured with `FREQ 2442` appears at -2 MHz
+before conjugation and +2 MHz afterward. esp-web-sdr already applies this
+conversion when decoding both `CAP16` and `CAP20`.
+
+The [S3 continuous stream](iq-stream.md) also requires conjugation.
+The separate [S31 streaming firmware](s31-streaming.md#iq-packets)
+uses the opposite polarity and does not require conjugation.
+
 ## Streaming modes
 
 - On-chip spectra (`SPEC`, all chips): [spectrum.md](spectrum.md)
